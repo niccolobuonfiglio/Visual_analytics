@@ -10,32 +10,50 @@ with a label column works.
 
 ## What it does
 
-For every projected point `i` we compute two average Euclidean distances **in the
-2D projection**:
+Each point gets a signed **error in [−1, +1]** on the scale **FN (−1) … True (0)
+… FP (+1)**, and the same scale is applied to a **PCA** and an **MDS** projection
+so the two can be compared point by point. Two metrics are available.
 
-- `d_same` — mean distance to points of the **same** class (excluding self)
-- `d_diff` — mean distance to points of **different** classes
+### Default: intrusion / extrusion (`--metric intrusion`)
 
-and combine them into one signed error:
+This compares the **high-D** space to the **2D** projection (so it actually
+measures what the projection did, not just whether classes look compact). For a
+neighbourhood size `k`:
 
-```
-error_i = -(d_same - d_diff) / (d_same + d_diff)     # range [-1, +1]
-```
+- **FP_i (intrusion):** points sitting in `i`'s 2D `k`-neighbourhood whose *true*
+  high-D rank is > `k` — the projection asserted a closeness that is false.
+- **FN_i (extrusion):** `i`'s true high-D `k`-neighbours whose 2D rank is > `k` —
+  the projection pushed a real neighbour away.
+- `error_i = FP_i − FN_i`, each side weighted by how wrong it is (its rank in the
+  other space) and normalised to [0, 1].
 
-### Sign convention (canonical "professor" scale)
+The rank weighting matters: with plain counts and a fixed `k`, intrusions and
+extrusions are forced to be equal and every point would read 0. (This weighted
+form is the per-point trustworthiness/continuity decomposition.)
 
-| value        | meaning                                   | label       | colour |
-|--------------|-------------------------------------------|-------------|--------|
-| `error < 0`  | point is pulled toward **other** classes  | **FN** (−1) | red    |
-| `error = 0`  | equidistant from own / other classes      | True (0)    | white  |
-| `error > 0`  | point sits **tight inside its own** class | **FP** (+1) | blue   |
+By default it is **class-aware** — only *cross-class* intrusions count as FP and
+only *same-class* neighbours pushed away count as FN, so the score reflects
+misrepresented **class** structure. Pass `--geometric` for the label-free version
+(any rank-broken neighbour counts).
 
-> The bare ratio `(d_same - d_diff)/(...)` gives the *opposite* sign. We negate it
-> so the result matches the `−1 = FN … +1 = FP` scale. To get the raw version,
-> remove the leading minus in `compute_error_scale` (in `error_core.py`).
+### Legacy: class compactness (`--metric classic`)
 
-The same metric is applied to a **PCA** and an **MDS** projection so the two
-methods can be compared point by point.
+The original 2D-only score `error = -(d_same - d_diff) / (d_same + d_diff)` where
+`d_same`/`d_diff` are mean distances to same/other-class points in the projection.
+It ignores the high-D data, so it mostly reports class separability and lands
+almost everything on the FP side (see Notes).
+
+### Sign convention (both metrics)
+
+| value        | label       | colour |
+|--------------|-------------|--------|
+| `error < 0`  | **FN** (−1) | red    |
+| `error = 0`  | True (0)    | white  |
+| `error > 0`  | **FP** (+1) | blue   |
+
+Because intrusion-metric values are usually well inside [−1, 1], the colour scale
+and plot axes auto-rescale to the data's peak (shown on the colour bar) for
+contrast.
 
 ---
 
@@ -62,8 +80,21 @@ methods can be compared point by point.
   "fare brushing su uno e vedere i punti dall'altra parte" requirement.
 
 ### Outputs
-Figures are written with a **dataset prefix** so multiple runs never overwrite:
-`wine_projections.png`, `wine_error_comparison.png`, `digits_projections.png`, …
+Figures are written into per-dataset, per-preprocessing subfolders so runs never
+overwrite each other:
+
+```
+outputs/
+├── wine/
+│   ├── standardized/   wine_projections.png, wine_error_comparison.png
+│   └── raw/            (only if you pass --no-standardize)
+├── iris/standardized/  ...
+└── digits/standardized/ ...
+```
+
+The path is `outputs/<dataset>/<standardized|raw>/<tag>_*.png`, where `<tag>`
+encodes the metric, e.g. `wine_intrusion_k10_class_*` or `wine_classic_*`, so
+different metrics/settings never overwrite each other.
 
 ---
 
@@ -115,10 +146,13 @@ it can save PNGs anywhere; remove its `matplotlib.use("Agg")` line for pop-ups.)
 | `--dataset NAME`  | both           | `wine` (default), `iris`, `breast_cancer`, `digits`|
 | `--csv PATH`      | both           | use a CSV instead of a built-in dataset            |
 | `--label-col COL` | both           | label column name (required with `--csv`)          |
+| `--metric NAME`   | both           | `intrusion` (default) or `classic`                 |
+| `--neighbors K`   | both           | neighbourhood size for intrusion metric (10)       |
+| `--geometric`     | both           | intrusion metric ignores labels                    |
 | `--no-standardize`| both           | skip `StandardScaler` (default: standardize)       |
 | `--max-samples N` | both           | stratified subsample cap (speeds up MDS)           |
 | `--threshold T`   | static only    | `\|error\|` cutoff for untrustworthy points (0.5)|
-| `--outdir DIR`    | static only    | output folder for PNGs (default `.`)               |
+| `--outdir DIR`    | static only    | base folder; figures go to `<DIR>/<dataset>/<std\|raw>/` |
 
 ---
 
@@ -130,11 +164,15 @@ it can save PNGs anywhere; remove its `matplotlib.use("Agg")` line for pop-ups.)
 - **MDS is O(n²).** For larger sets (e.g. Digits, 1797 points) use
   `--max-samples`. It subsamples *with stratification* and keeps the original row
   indices, so the untrustworthy report still prints true indices.
-- **Easy datasets sit on the FP side.** When classes separate cleanly (Wine,
-  Iris), almost every point gets a positive error (tight in its own class), so the
-  comparison plot clusters in the upper-right "both FP" quadrant and genuine FN
-  points are rare. Harder, overlapping datasets (Digits) produce a real mix of FN
-  and FP and clearer PCA/MDS disagreements — a better stress test.
+- **`classic` is almost always FP (blue).** Its `d_diff` pools *all* other-class
+  points, which is large by construction, so `d_diff > d_same` (an FP error) is the
+  default for any normal point. It scores global class compactness, not projection
+  fidelity. The `intrusion` metric is the fix: it compares high-D to 2D and shows
+  a genuine FP/FN mix with PCA vs MDS disagreement.
+- **Intrusion metric, picking `k`.** Small `k` (≈5–10) is local and sensitive;
+  larger `k` smooths. `--geometric` (label-free) leans FP on these datasets;
+  class-aware leans FN on cleanly separated ones (mild within-class reshuffling) —
+  both are honest, they answer different questions.
 - **"Untrustworthy" definition.** The default flags `|error| > threshold`, which on
   easy datasets selects the *best*-embedded points. If "untrustworthy" should mean
   *misrepresented*, filter on `error < -threshold` (the FN side) instead.

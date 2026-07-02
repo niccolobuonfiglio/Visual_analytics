@@ -18,13 +18,15 @@ metric logic lives in error_core.py.
 import argparse
 
 import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
 from matplotlib.cm import ScalarMappable
 from matplotlib.widgets import RectangleSelector
 
 from error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
-                        compute_error_scale, build_projections)
+                        build_projections, compute_errors)
 
 CMAP = "RdBu"
 
@@ -47,7 +49,10 @@ class LinkedBrush:
         self.err = errors
         self.labels = np.asarray(labels)
         self.target_names = target_names
-        self.norm = TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1)
+        peak = max(max(np.abs(e).max() for e in errors.values()), 0.1)
+        vmax = float(np.ceil(peak * 10) / 10)
+        self.norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
+        self._vmax = vmax
 
         self.fig, self.axes = plt.subplots(1, 2, figsize=(14, 6))
         self.ax = dict(zip(self.names, self.axes))
@@ -72,8 +77,9 @@ class LinkedBrush:
         sm = ScalarMappable(norm=self.norm, cmap=CMAP)
         sm.set_array([])
         cbar = self.fig.colorbar(sm, ax=self.axes, fraction=0.046, pad=0.04,
-                                 ticks=[-1, 0, 1])
-        cbar.ax.set_yticklabels(["FN (-1)", "True (0)", "FP (+1)"])
+                                 ticks=[-self._vmax, 0, self._vmax])
+        cbar.ax.set_yticklabels([f"FN (-{self._vmax:g})", "True (0)",
+                                 f"FP (+{self._vmax:g})"])
         self.fig.suptitle(f"{name} — linked brushing (drag a box on either plot; "
                           "FN red / True white / FP blue)", fontsize=13)
 
@@ -113,6 +119,10 @@ def parse_args():
     p.add_argument("--dataset", default="wine", choices=list(SKLEARN_LOADERS))
     p.add_argument("--csv", default=None)
     p.add_argument("--label-col", default=None)
+    p.add_argument("--metric", default="intrusion", choices=["intrusion", "classic"])
+    p.add_argument("--neighbors", type=int, default=10)
+    p.add_argument("--geometric", action="store_true",
+                   help="intrusion metric ignores labels (pure neighbour ranks)")
     p.add_argument("--no-standardize", action="store_true")
     p.add_argument("--max-samples", type=int, default=None,
                    help="stratified subsample cap (MDS is slow on big data)")
@@ -122,8 +132,9 @@ def parse_args():
 def build(args):
     X, y, target_names, name = load_dataset(args.dataset, args.csv, args.label_col)
     X, y, _ = maybe_subsample(X, y, args.max_samples)
-    proj = build_projections(X, standardize=not args.no_standardize)
-    errors = {m: compute_error_scale(xy, y) for m, xy in proj.items()}
+    proj, X_high = build_projections(X, standardize=not args.no_standardize)
+    errors = compute_errors(proj, X_high, y, metric=args.metric,
+                            k=args.neighbors, class_aware=not args.geometric)
     return proj, errors, y, target_names, name
 
 

@@ -99,9 +99,68 @@ def compute_error_scale(X_2d, labels):
 
 
 def build_projections(X, standardize=True):
-    """Standardize (optional) then return {'PCA': xy, 'MDS': xy} 2D embeddings."""
+    """Standardize (optional) then return ({'PCA': xy, 'MDS': xy}, X_high).
+
+    X_high is the (possibly standardized) high-D array the projections were built
+    from; the intrusion/extrusion metric needs it to rank true neighbours.
+    """
     Xp = StandardScaler().fit_transform(X) if standardize else np.asarray(X, float)
     pca = PCA(n_components=2, random_state=RANDOM_STATE).fit_transform(Xp)
     mds = MDS(n_components=2, dissimilarity="euclidean", n_init=4,
               random_state=RANDOM_STATE).fit_transform(Xp)
-    return {"PCA": pca, "MDS": mds}
+    return {"PCA": pca, "MDS": mds}, Xp
+
+
+# ---------------------------------------------------------------------
+# Intrusion / extrusion error  (precision-vs-recall, FP - FN)
+# ---------------------------------------------------------------------
+def _ranks(D):
+    """1-based rank of every point as a neighbour of every other (self = inf)."""
+    D = D.copy()
+    np.fill_diagonal(D, np.inf)
+    return np.argsort(np.argsort(D, axis=1), axis=1) + 1   # nearest non-self -> 1
+
+
+def compute_intrusion_extrusion_error(X_high, X_2d, k=10, labels=None,
+                                      class_aware=True):
+    """error_i = FP_i - FN_i in [-1, 1], rank-severity weighted.
+
+    FP_i (intrusion): points in i's 2D k-neighbourhood whose TRUE high-D rank > k
+                      (the projection placed them near i falsely).
+    FN_i (extrusion): i's true high-D k-neighbours whose 2D rank > k
+                      (the projection pushed real neighbours away).
+    Each weighted by how far off it is (rank - k) and normalised to [0, 1].
+
+    class_aware=True counts only cross-class intrusions as FP and only same-class
+    extrusions as FN, so the score reflects misrepresented *class* structure.
+    """
+    n = X_2d.shape[0]
+    # need 2n - 3k - 1 > 0 for a valid normaliser; clamp k if necessary
+    k = max(1, min(k, (2 * n - 2) // 3))
+    rh = _ranks(pairwise_distances(X_high, metric="euclidean"))
+    rl = _ranks(pairwise_distances(X_2d, metric="euclidean"))
+    W = k * (2 * n - 3 * k - 1) / 2.0          # max possible per-point penalty
+    labels = np.asarray(labels) if labels is not None else None
+
+    err = np.zeros(n)
+    for i in range(n):
+        intruder = (rl[i] <= k) & (rh[i] > k)   # close in 2D, far in high-D
+        extruded = (rh[i] <= k) & (rl[i] > k)   # close in high-D, far in 2D
+        if class_aware and labels is not None:
+            other = labels != labels[i]
+            intruder &= other                   # only class-mixing intrusions
+            extruded &= ~other                  # only lost class-mates
+        fp = np.sum(rh[i][intruder] - k) / W
+        fn = np.sum(rl[i][extruded] - k) / W
+        err[i] = fp - fn
+    return err
+
+
+def compute_errors(proj, X_high, labels, metric="intrusion", k=10,
+                   class_aware=True):
+    """Dispatch: 'classic' (2D-only class compactness) or 'intrusion' (FP-FN)."""
+    if metric == "classic":
+        return {m: compute_error_scale(xy, labels) for m, xy in proj.items()}
+    return {m: compute_intrusion_extrusion_error(X_high, xy, k=k, labels=labels,
+                                                 class_aware=class_aware)
+            for m, xy in proj.items()}
