@@ -4,18 +4,35 @@ Shared core for the PCA/MDS continuous error-scale project (dataset-agnostic).
 No plotting / no matplotlib here on purpose, so both the static analysis script
 and the interactive brushing tool can import it without backend conflicts.
 
-Error metric (canonical "professor" scale):
-    error = -(d_same - d_diff) / (d_same + d_diff)   in [-1, +1]
+Two metric families are provided:
+
+Classic class-compactness scale (2D only)::
+
+    error = -(alpha*d_same - beta*d_diff) / (alpha*d_same + beta*d_diff)   in [-1, +1]
         < 0  -> drawn toward OTHER classes    = FN (-1)
         > 0  -> tightly embedded in own class = FP (+1)
         = 0  -> equidistant (True)
+
+    (alpha = beta = 1 recovers the original professor scale.)
+
+Intrusion / extrusion scale (compares high-D to 2D), the default::
+
+    error = FP - FN   in [-1, +1]
+
+    where FP (intrusion) and FN (extrusion) are rank-severity-weighted and can
+    be returned separately for diagnostics. Distance weighting (as opposed to
+    rank weighting) is available via ``weight='distance'``.
 """
+
+from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 from sklearn import datasets as skds
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
@@ -23,8 +40,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import pairwise_distances
 from sklearn.model_selection import train_test_split
 
+# re-exported so callers can keep importing describe from error_core if they like
+from utils import describe  # noqa: F401
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 RANDOM_STATE = 42
+
+Projections = dict[str, NDArray[np.float64]]
+ErrorMap = dict[str, NDArray[np.float64]]
 
 # Built-in sklearn loaders exposing .data / .target / .target_names
 SKLEARN_LOADERS = {
@@ -35,8 +58,15 @@ SKLEARN_LOADERS = {
 }
 
 
-def load_dataset(name="wine", csv_path=None, label_col=None):
-    """Return (X, y, target_names: list[str], dataset_name: str)."""
+def load_dataset(name: str = "wine", csv_path: Optional[str] = None,
+                 label_col: Optional[str] = None
+                 ) -> tuple[NDArray[np.float64], NDArray[np.int_], list[str], str]:
+    """Return (X, y, target_names, dataset_name).
+
+    If ``csv_path`` is given, the named ``label_col`` becomes the class column
+    and every remaining numeric column becomes a feature; otherwise a built-in
+    sklearn loader named by ``name`` is used.
+    """
     if csv_path:
         df = pd.read_csv(csv_path)
         if label_col is None or label_col not in df.columns:
@@ -56,22 +86,13 @@ def load_dataset(name="wine", csv_path=None, label_col=None):
     return data.data, data.target, [str(t) for t in data.target_names], name
 
 
-def describe(X, y, target_names, name):
-    classes, counts = np.unique(y, return_counts=True)
-    print("=" * 60)
-    print(f"DATASET: {name}")
-    print("=" * 60)
-    print(f"Samples : {X.shape[0]}")
-    print(f"Features: {X.shape[1]}")
-    print(f"Classes : {len(classes)}")
-    for c, n in zip(classes, counts):
-        label = target_names[c] if c < len(target_names) else str(c)
-        print(f"  class {c} ({label}): {n}")
-
-
-def maybe_subsample(X, y, max_samples):
+def maybe_subsample(X: NDArray[np.float64], y: NDArray[np.int_],
+                    max_samples: Optional[int]
+                    ) -> tuple[NDArray[np.float64], NDArray[np.int_], NDArray[np.int_]]:
     """Stratified subsample to keep MDS (O(n^2)) tractable on big data.
-    Returns X, y, ids (ids = original row indices, for honest reporting)."""
+
+    Returns X, y, ids (ids = original row indices, for honest reporting).
+    """
     ids = np.arange(len(y))
     if max_samples is None or len(y) <= max_samples:
         return X, y, ids
@@ -81,24 +102,8 @@ def maybe_subsample(X, y, max_samples):
     return Xs, ys, ids_s
 
 
-def compute_error_scale(X_2d, labels):
-    """error_i = -(d_same - d_diff) / (d_same + d_diff), in [-1, +1]."""
-    labels = np.asarray(labels)
-    n = X_2d.shape[0]
-    D = pairwise_distances(X_2d, metric="euclidean")
-    errors = np.zeros(n)
-    for i in range(n):
-        same = labels == labels[i]
-        same[i] = False                 # exclude self
-        diff = ~(labels == labels[i])
-        d_same = D[i, same].mean() if same.any() else 0.0
-        d_diff = D[i, diff].mean() if diff.any() else 0.0
-        denom = d_same + d_diff
-        errors[i] = -(d_same - d_diff) / denom if denom != 0 else 0.0
-    return errors
-
-
-def build_projections(X, standardize=True):
+def build_projections(X: NDArray[np.float64], standardize: bool = True
+                      ) -> tuple[Projections, NDArray[np.float64]]:
     """Standardize (optional) then return ({'PCA': xy, 'MDS': xy}, X_high).
 
     X_high is the (possibly standardized) high-D array the projections were built
@@ -112,55 +117,204 @@ def build_projections(X, standardize=True):
 
 
 # ---------------------------------------------------------------------
+# Classic 2D class-compactness error (now with alpha/beta weighting)
+# ---------------------------------------------------------------------
+def compute_error_scale(X_2d: NDArray[np.float64], labels: Sequence[int],
+                        alpha: float = 1.0, beta: float = 1.0
+                        ) -> NDArray[np.float64]:
+    """error_i = -(alpha*d_same - beta*d_diff) / (alpha*d_same + beta*d_diff).
+
+    ``d_same`` / ``d_diff`` are point i's mean distance to same- / other-class
+    points in the 2D projection. ``alpha`` up-weights within-class tightness and
+    ``beta`` up-weights between-class separation; ``alpha = beta = 1`` is the
+    original scale. Result is in ``[-1, +1]``.
+    """
+    lab = np.asarray(labels)
+    n = X_2d.shape[0]
+    D = pairwise_distances(X_2d, metric="euclidean")
+    errors = np.zeros(n)
+    for i in range(n):
+        same = lab == lab[i]
+        same[i] = False                 # exclude self
+        diff = ~(lab == lab[i])
+        d_same = D[i, same].mean() if same.any() else 0.0
+        d_diff = D[i, diff].mean() if diff.any() else 0.0
+        num = alpha * d_same - beta * d_diff
+        denom = alpha * d_same + beta * d_diff
+        errors[i] = -num / denom if denom != 0 else 0.0
+    return errors
+
+
+# ---------------------------------------------------------------------
 # Intrusion / extrusion error  (precision-vs-recall, FP - FN)
 # ---------------------------------------------------------------------
-def _ranks(D):
+def _ranks(D: NDArray[np.float64]) -> NDArray[np.int_]:
     """1-based rank of every point as a neighbour of every other (self = inf)."""
     D = D.copy()
     np.fill_diagonal(D, np.inf)
     return np.argsort(np.argsort(D, axis=1), axis=1) + 1   # nearest non-self -> 1
 
 
-def compute_intrusion_extrusion_error(X_high, X_2d, k=10, labels=None,
-                                      class_aware=True):
-    """error_i = FP_i - FN_i in [-1, 1], rank-severity weighted.
+def adaptive_k(D_high: NDArray[np.float64], k_base: int,
+               k_min: int = 3, k_max: Optional[int] = None
+               ) -> NDArray[np.int_]:
+    """Per-point neighbourhood size driven by local density.
+
+    Dense points (small mean distance to their ``k_base`` nearest neighbours)
+    get a smaller k; sparse/outlying points get a larger k. The mean local
+    radius is mapped through the population median so the *median* point keeps
+    roughly ``k_base``, then clamped to ``[k_min, k_max]``.
+
+    Parameters
+    ----------
+    D_high : ndarray, shape (n, n)
+        High-D pairwise distance matrix.
+    k_base : int
+        Target neighbourhood size for a typical (median-density) point.
+    k_min, k_max : int
+        Hard bounds; ``k_max`` defaults to ``2*k_base``.
+
+    Returns
+    -------
+    ndarray of int, shape (n,)
+        Per-point k.
+    """
+    n = D_high.shape[0]
+    if k_max is None:
+        k_max = 2 * k_base
+    Dc = D_high.copy()
+    np.fill_diagonal(Dc, np.inf)
+    kk = max(1, min(k_base, n - 1))
+    # mean distance to each point's kk nearest neighbours = local radius
+    part = np.partition(Dc, kk - 1, axis=1)[:, :kk]
+    local_radius = part.mean(axis=1)
+    med = np.median(local_radius)
+    if med <= 0:
+        return np.full(n, k_base, dtype=int)
+    scaled = np.rint(k_base * local_radius / med).astype(int)
+    return np.clip(scaled, k_min, k_max)
+
+
+def compute_intrusion_extrusion_error(
+        X_high: NDArray[np.float64], X_2d: NDArray[np.float64], k: int = 10,
+        labels: Optional[Sequence[int]] = None, class_aware: bool = True,
+        weight: str = "rank", adaptive: bool = False,
+        return_parts: bool = False):
+    """Per-point projection-fidelity error ``FP - FN`` in ``[-1, 1]``.
 
     FP_i (intrusion): points in i's 2D k-neighbourhood whose TRUE high-D rank > k
                       (the projection placed them near i falsely).
     FN_i (extrusion): i's true high-D k-neighbours whose 2D rank > k
                       (the projection pushed real neighbours away).
-    Each weighted by how far off it is (rank - k) and normalised to [0, 1].
 
-    class_aware=True counts only cross-class intrusions as FP and only same-class
-    extrusions as FN, so the score reflects misrepresented *class* structure.
+    Parameters
+    ----------
+    weight : {'rank', 'distance'}
+        ``rank`` weights each offender by ``rank_other_space - k`` (the original
+        trustworthiness/continuity severity). ``distance`` instead weights each
+        offender by the actual distance discrepancy -- intrusions by how *far*
+        they truly are in high-D despite being pulled close in 2D, extrusions the
+        mirror -- so a badly misplaced near-neighbour hurts more than a marginal
+        one. Distance-weighted scores are normalised per point to ``[0, 1]``.
+    adaptive : bool
+        If True, ``k`` becomes a per-point value from :func:`adaptive_k`
+        (density-driven), and ``k`` is used as the base/target.
+    class_aware : bool
+        Count only cross-class intrusions as FP and only same-class extrusions
+        as FN, so the score reflects misrepresented *class* structure.
+    return_parts : bool
+        If True, return ``(err, fp, fn)`` with the non-negative FP and FN
+        components separately (``err == fp - fn``); otherwise just ``err``.
+
+    Returns
+    -------
+    ndarray, or (ndarray, ndarray, ndarray)
+        See ``return_parts``.
     """
     n = X_2d.shape[0]
-    # need 2n - 3k - 1 > 0 for a valid normaliser; clamp k if necessary
-    k = max(1, min(k, (2 * n - 2) // 3))
-    rh = _ranks(pairwise_distances(X_high, metric="euclidean"))
-    rl = _ranks(pairwise_distances(X_2d, metric="euclidean"))
-    W = k * (2 * n - 3 * k - 1) / 2.0          # max possible per-point penalty
-    labels = np.asarray(labels) if labels is not None else None
+    Dh = pairwise_distances(X_high, metric="euclidean")
+    Dl = pairwise_distances(X_2d, metric="euclidean")
+    rh = _ranks(Dh)
+    rl = _ranks(Dl)
+    lab = np.asarray(labels) if labels is not None else None
 
-    err = np.zeros(n)
+    if adaptive:
+        k_vec = adaptive_k(Dh, k)
+    else:
+        k_scalar = max(1, min(k, (2 * n - 2) // 3))
+        k_vec = np.full(n, k_scalar, dtype=int)
+
+    fp = np.zeros(n)
+    fn = np.zeros(n)
     for i in range(n):
-        intruder = (rl[i] <= k) & (rh[i] > k)   # close in 2D, far in high-D
-        extruded = (rh[i] <= k) & (rl[i] > k)   # close in high-D, far in 2D
-        if class_aware and labels is not None:
-            other = labels != labels[i]
-            intruder &= other                   # only class-mixing intrusions
-            extruded &= ~other                  # only lost class-mates
-        fp = np.sum(rh[i][intruder] - k) / W
-        fn = np.sum(rl[i][extruded] - k) / W
-        err[i] = fp - fn
+        ki = int(k_vec[i])
+        ki = max(1, min(ki, (2 * n - 2) // 3))          # keep normaliser valid
+        intruder = (rl[i] <= ki) & (rh[i] > ki)         # close in 2D, far high-D
+        extruded = (rh[i] <= ki) & (rl[i] > ki)         # close high-D, far in 2D
+        if class_aware and lab is not None:
+            other = lab != lab[i]
+            intruder &= other                            # only class-mixing
+            extruded &= ~other                           # only lost class-mates
+
+        if weight == "rank":
+            W = ki * (2 * n - 3 * ki - 1) / 2.0          # max rank penalty
+            W = W if W > 0 else 1.0
+            fp[i] = np.sum(rh[i][intruder] - ki) / W
+            fn[i] = np.sum(rl[i][extruded] - ki) / W
+        elif weight == "distance":
+            # intrusion severity: far in high-D despite being pulled close in 2D
+            fp_raw = np.sum(Dh[i][intruder])
+            # extrusion severity: far in 2D despite being a true high-D neighbour
+            fn_raw = np.sum(Dl[i][extruded])
+            row_h = Dh[i].sum()
+            row_l = Dl[i].sum()
+            fp[i] = fp_raw / row_h if row_h > 0 else 0.0
+            fn[i] = fn_raw / row_l if row_l > 0 else 0.0
+        else:
+            raise ValueError(f"Unknown weight '{weight}'. Use rank or distance.")
+
+    err = fp - fn
+    if return_parts:
+        return err, fp, fn
     return err
 
 
-def compute_errors(proj, X_high, labels, metric="intrusion", k=10,
-                   class_aware=True):
-    """Dispatch: 'classic' (2D-only class compactness) or 'intrusion' (FP-FN)."""
+def compute_errors(proj: Projections, X_high: NDArray[np.float64],
+                   labels: Sequence[int], metric: str = "intrusion", k: int = 10,
+                   class_aware: bool = True, weight: str = "rank",
+                   adaptive: bool = False, alpha: float = 1.0, beta: float = 1.0,
+                   return_parts: bool = False):
+    """Dispatch to a metric for every projection.
+
+    ``metric='classic'`` -> 2D-only class compactness (honours ``alpha``/``beta``).
+    ``metric='intrusion'`` -> FP-FN intrusion/extrusion (honours ``weight``,
+    ``adaptive``, ``class_aware``).
+
+    Returns an ``{name: err}`` dict, or if ``return_parts`` and the intrusion
+    metric is used, ``(errors, fps, fns)`` -- three parallel dicts.
+    """
     if metric == "classic":
-        return {m: compute_error_scale(xy, labels) for m, xy in proj.items()}
-    return {m: compute_intrusion_extrusion_error(X_high, xy, k=k, labels=labels,
-                                                 class_aware=class_aware)
+        errs = {m: compute_error_scale(xy, labels, alpha=alpha, beta=beta)
+                for m, xy in proj.items()}
+        if return_parts:
+            # classic has no separable FP/FN; expose positive/negative halves
+            fps = {m: np.clip(e, 0, None) for m, e in errs.items()}
+            fns = {m: np.clip(-e, 0, None) for m, e in errs.items()}
+            return errs, fps, fns
+        return errs
+
+    if return_parts:
+        errs = {}
+        fps = {}
+        fns = {}
+        for m, xy in proj.items():
+            e, fp, fn = compute_intrusion_extrusion_error(
+                X_high, xy, k=k, labels=labels, class_aware=class_aware,
+                weight=weight, adaptive=adaptive, return_parts=True)
+            errs[m], fps[m], fns[m] = e, fp, fn
+        return errs, fps, fns
+
+    return {m: compute_intrusion_extrusion_error(
+                X_high, xy, k=k, labels=labels, class_aware=class_aware,
+                weight=weight, adaptive=adaptive)
             for m, xy in proj.items()}

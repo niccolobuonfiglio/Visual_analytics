@@ -2,7 +2,8 @@
 Static PCA-vs-MDS continuous error-scale analysis (dataset-agnostic).
 
 Wine is the default starting point; any built-in sklearn classification dataset
-or a CSV with a label column works too. Shared logic lives in error_core.py.
+or a CSV with a label column works too. Shared logic lives in error_core.py,
+helpers in utils.py, and all figures in plotting.py.
 
 Usage:
     python wine_error_scale.py                          # Wine (default)
@@ -10,92 +11,61 @@ Usage:
     python wine_error_scale.py --dataset digits --max-samples 400
     python wine_error_scale.py --csv mydata.csv --label-col species
     python wine_error_scale.py --dataset wine --no-standardize --threshold 0.6
+    python wine_error_scale.py --weight distance --adaptive --normalize tanh
+    python wine_error_scale.py --metric classic --alpha 1 --beta 2
 """
+
+from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 import matplotlib
 matplotlib.use("Agg")  # drop this line if you want interactive windows
-import matplotlib.pyplot as plt
-from matplotlib.colors import TwoSlopeNorm
-from matplotlib.cm import ScalarMappable
 
-from error_core import (SKLEARN_LOADERS, load_dataset, describe,
-                        maybe_subsample, build_projections, compute_errors)
-
-
-# =====================================================================
-# SIDE-BY-SIDE PROJECTION PLOT
-# =====================================================================
-def plot_projections(pca_2d, pca_err, mds_2d, mds_err, name, outdir,
-                     fname, vmax=1.0):
-    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
-    cmap = "RdBu"   # low->red (FN), 0->white, high->blue (FP)
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    for ax, proj, err, m in [(axes[0], pca_2d, pca_err, "PCA"),
-                             (axes[1], mds_2d, mds_err, "MDS")]:
-        ax.scatter(proj[:, 0], proj[:, 1], c=err, cmap=cmap, norm=norm,
-                   s=55, edgecolors="k", linewidths=0.4)
-        ax.set_title(m)
-        ax.set_xlabel("dim 1")
-        ax.set_ylabel("dim 2")
-    sm = ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=axes, fraction=0.046, pad=0.04,
-                        ticks=[-vmax, 0, vmax])
-    cbar.ax.set_yticklabels([f"FN (-{vmax:g})", "True (0)", f"FP (+{vmax:g})"])
-    fig.suptitle(f"{name} — Error scale: FN (red) – True (white) – FP (blue)",
-                 fontsize=14)
-    out = Path(outdir) / f"{fname}_projections.png"
-    fig.savefig(out, dpi=130, bbox_inches="tight")
-    plt.close(fig)
-    print(f"[saved] {out}")
-
-
-# =====================================================================
-# PCA-ERROR vs MDS-ERROR SCATTER
-# =====================================================================
-def plot_error_comparison(pca_err, mds_err, labels, target_names, name, outdir,
-                          fname, vmax=1.0):
-    fig, ax = plt.subplots(figsize=(7, 7))
-    sc = ax.scatter(pca_err, mds_err, c=labels, cmap="viridis",
-                    s=55, edgecolors="k", linewidths=0.4)
-    ax.axhline(0, color="grey", lw=1)
-    ax.axvline(0, color="grey", lw=1)
-    ax.set_xlabel("PCA error")
-    ax.set_ylabel("MDS error")
-    ax.set_title(f"{name} — PCA error vs MDS error (per point)")
-    ax.set_xlim(-vmax, vmax)
-    ax.set_ylim(-vmax, vmax)
-    # quadrants (negated scale: <0 = FN, >0 = FP)
-    ax.text(-0.95 * vmax, -0.95 * vmax, "both FN", ha="left", va="bottom", fontsize=9, alpha=0.7)
-    ax.text(0.95 * vmax, 0.95 * vmax, "both FP", ha="right", va="top", fontsize=9, alpha=0.7)
-    ax.text(-0.95 * vmax, 0.95 * vmax, "PCA-FN / MDS-FP", ha="left", va="top", fontsize=9, alpha=0.7)
-    ax.text(0.95 * vmax, -0.95 * vmax, "PCA-FP / MDS-FN", ha="right", va="bottom", fontsize=9, alpha=0.7)
-    handles, _ = sc.legend_elements()
-    ax.legend(handles, list(target_names), title="class", loc="upper center",
-              ncol=min(len(target_names), 5), fontsize=8)
-    out = Path(outdir) / f"{fname}_error_comparison.png"
-    fig.savefig(out, dpi=130, bbox_inches="tight")
-    plt.close(fig)
-    print(f"[saved] {out}")
+from error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
+                        build_projections, compute_errors)
+from utils import describe, resolve_outdir, build_fname_tag, nice_vmax, \
+    normalize_errors
+from plotting import (plot_projections, plot_error_comparison,
+                      plot_error_histograms, plot_parallel_coordinates)
 
 
 # =====================================================================
 # UNTRUSTWORTHY POINTS
 # =====================================================================
-def report_untrustworthy(pca_err, mds_err, labels, target_names, ids, thresh):
+def report_untrustworthy(pca_err: NDArray[np.float64],
+                         mds_err: NDArray[np.float64], labels: NDArray[np.int_],
+                         target_names: Sequence[str], ids: NDArray[np.int_],
+                         thresh: float,
+                         pca_fp: Optional[NDArray[np.float64]] = None,
+                         pca_fn: Optional[NDArray[np.float64]] = None,
+                         mds_fp: Optional[NDArray[np.float64]] = None,
+                         mds_fn: Optional[NDArray[np.float64]] = None
+                         ) -> pd.DataFrame:
+    """Print points whose |error| exceeds ``thresh`` in either projection.
+
+    When the FP/FN component arrays are supplied they are shown alongside the
+    net error so it is clear whether intrusion or extrusion drove each point.
+    """
     mask = (np.abs(pca_err) > thresh) | (np.abs(mds_err) > thresh)
     sel = np.where(mask)[0]
-    df = pd.DataFrame({
+    cols = {
         "index": ids[sel],
         "true_class": [target_names[labels[i]] for i in sel],
         "pca_error": np.round(pca_err[sel], 3),
         "mds_error": np.round(mds_err[sel], 3),
-    })
+    }
+    if pca_fp is not None:
+        cols["pca_FP"] = np.round(pca_fp[sel], 3)
+        cols["pca_FN"] = np.round(pca_fn[sel], 3)
+        cols["mds_FP"] = np.round(mds_fp[sel], 3)
+        cols["mds_FN"] = np.round(mds_fn[sel], 3)
+    df = pd.DataFrame(cols)
     print("\n" + "=" * 60)
     print(f"UNTRUSTWORTHY POINTS  (|error| > {thresh} in PCA or MDS)")
     print("=" * 60)
@@ -111,7 +81,7 @@ def report_untrustworthy(pca_err, mds_err, labels, target_names, ids, thresh):
 # =====================================================================
 # MAIN
 # =====================================================================
-def parse_args():
+def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Continuous PCA/MDS error scale.")
     p.add_argument("--dataset", default="wine", choices=list(SKLEARN_LOADERS),
                    help="built-in sklearn dataset (default: wine)")
@@ -124,6 +94,19 @@ def parse_args():
                    help="neighbourhood size k for the intrusion metric")
     p.add_argument("--geometric", action="store_true",
                    help="intrusion metric ignores labels (pure neighbour ranks)")
+    p.add_argument("--weight", default="rank", choices=["rank", "distance"],
+                   help="intrusion offender weighting: rank-severity or distance")
+    p.add_argument("--adaptive", action="store_true",
+                   help="per-point density-driven k (intrusion metric)")
+    p.add_argument("--normalize", default="none",
+                   choices=["none", "tanh", "sigmoid", "sumabs"],
+                   help="squash/transform final errors for display")
+    p.add_argument("--norm-scale", type=float, default=3.0,
+                   help="steepness for tanh/sigmoid normalization")
+    p.add_argument("--alpha", type=float, default=1.0,
+                   help="classic metric: weight on same-class distance")
+    p.add_argument("--beta", type=float, default=1.0,
+                   help="classic metric: weight on different-class distance")
     p.add_argument("--no-standardize", action="store_true",
                    help="skip StandardScaler (default: standardize)")
     p.add_argument("--max-samples", type=int, default=None,
@@ -135,15 +118,7 @@ def parse_args():
     return p.parse_args()
 
 
-def resolve_outdir(base, name, standardize):
-    """outputs/<dataset>/<standardized|raw>/  -> created and returned."""
-    sub = "standardized" if standardize else "raw"
-    ds_dir = Path(base) / name / sub
-    ds_dir.mkdir(parents=True, exist_ok=True)
-    return ds_dir
-
-
-def main():
+def main() -> None:
     args = parse_args()
 
     X, y, target_names, name = load_dataset(args.dataset, args.csv, args.label_col)
@@ -157,24 +132,39 @@ def main():
     proj, X_high = build_projections(X, standardize=standardize)
     pca_2d, mds_2d = proj["PCA"], proj["MDS"]
     class_aware = not args.geometric
-    err = compute_errors(proj, X_high, y, metric=args.metric,
-                         k=args.neighbors, class_aware=class_aware)
-    pca_err, mds_err = err["PCA"], err["MDS"]
+
+    # compute errors + FP/FN parts for asymmetric reporting
+    errs, fps, fns = compute_errors(
+        proj, X_high, y, metric=args.metric, k=args.neighbors,
+        class_aware=class_aware, weight=args.weight, adaptive=args.adaptive,
+        alpha=args.alpha, beta=args.beta, return_parts=True)
+
+    # optional display normalization (applied to net error only)
+    if args.normalize != "none":
+        errs = {m: normalize_errors(e, args.normalize, args.norm_scale)
+                for m, e in errs.items()}
+
+    pca_err, mds_err = errs["PCA"], errs["MDS"]
     print("\nFirst 5 PCA errors:", np.round(pca_err[:5], 3))
     print("First 5 MDS errors:", np.round(mds_err[:5], 3))
 
     # filename tag + colour scale
-    if args.metric == "classic":
-        fname, vmax = f"{name}_classic", 1.0
+    fname = build_fname_tag(name, args.metric, args.neighbors, args.geometric,
+                            adaptive=args.adaptive, normalize=args.normalize)
+    if args.metric == "classic" and args.normalize == "none":
+        vmax = 1.0
     else:
-        mode = "geom" if args.geometric else "class"
-        fname = f"{name}_intrusion_k{args.neighbors}_{mode}"
-        peak = max(np.abs(pca_err).max(), np.abs(mds_err).max(), 0.1)
-        vmax = float(np.ceil(peak * 10) / 10)        # round up to 0.1 for contrast
+        vmax = nice_vmax(pca_err, mds_err)
 
     plot_projections(pca_2d, pca_err, mds_2d, mds_err, name, outdir, fname, vmax)
-    plot_error_comparison(pca_err, mds_err, y, target_names, name, outdir, fname, vmax)
-    report_untrustworthy(pca_err, mds_err, y, target_names, ids, args.threshold)
+    plot_error_comparison(pca_err, mds_err, y, target_names, name, outdir,
+                          fname, vmax)
+    plot_error_histograms(errs, name, outdir, fname, vmax)
+    plot_parallel_coordinates(errs, y, target_names, name, outdir, fname, vmax)
+
+    report_untrustworthy(pca_err, mds_err, y, target_names, ids, args.threshold,
+                         pca_fp=fps["PCA"], pca_fn=fns["PCA"],
+                         mds_fp=fps["MDS"], mds_fn=fns["MDS"])
 
 
 if __name__ == "__main__":
