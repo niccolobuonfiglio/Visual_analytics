@@ -111,6 +111,7 @@ function bindControls(){
   });
 
   // CSV upload
+  /*
   $('csvFile').addEventListener('change', handleCsvUpload);
   const csvLabel = $('csvLabel');
   ['dragover','dragenter'].forEach(ev=>csvLabel.addEventListener(ev,(e)=>{e.preventDefault(); csvLabel.classList.add('loaded');}));
@@ -120,10 +121,11 @@ function bindControls(){
     const f = e.dataTransfer.files[0];
     if(f){ $('csvFile').files = e.dataTransfer.files; handleCsvUpload(); }
   });
+  */
 
   // run
   $('runBtn').addEventListener('click', runAnalysis);
-  $('clearBtn').addEventListener('click', clearRuns);
+  // $('clearBtn').addEventListener('click', clearRuns);
   // ⏎ to run (when not typing in a text field)
   document.addEventListener('keydown',(e)=>{
     if(e.key==='Enter' && !['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName)){
@@ -132,6 +134,7 @@ function bindControls(){
   });
 }
 
+/*
 let csvState = { path:null, labelCol:null };
 async function handleCsvUpload(){
   const f = $('csvFile').files[0]; if(!f) return;
@@ -151,6 +154,7 @@ async function handleCsvUpload(){
     toast('CSV loaded — pick a label column');
   }catch(e){ toast('upload error', true); }
 }
+*/
 
 /* ---- collect params from the form ---- */
 function collectParams(){
@@ -170,7 +174,7 @@ function collectParams(){
   };
   const ms = $('maxSamples').value;
   if(ms) p.max_samples = parseInt(ms);
-  if(csvState.path){ p.csv_path = csvState.path; p.label_col = $('labelCol').value; }
+  // if(csvState.path){ p.csv_path = csvState.path; p.label_col = $('labelCol').value; }
   return p;
 }
 
@@ -211,10 +215,12 @@ async function runAnalysis(){
   }
 }
 
+/*
 async function clearRuns(){
   await fetch('/api/clear',{method:'POST'});
   toast('Stored runs cleared');
 }
+*/
 
 async function restoreLast(){
   try{
