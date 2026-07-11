@@ -14,19 +14,38 @@ panel around the false-negative → true → false-positive scale.
   uploaded CSV), metric (`intrusion` / `classic`), neighbourhood `k`, `rank` vs
   `distance` weighting, adaptive-`k`, class-aware vs geometric, normalization
   (`none` / `tanh` / `sigmoid` / `sum-abs`) with steepness, classic `α`/`β`,
-  `max_samples`, standardization, and the untrustworthy threshold.
+  `max_samples`, standardization, the untrustworthy threshold, and **Weighted
+  MDS** (weighted-Euclidean dissimilarity with `inverse variance` / `correlation`
+  / `mutual info` / `custom` feature weights).
 - **Run analysis** executes the static pipeline server-side and shows:
   - a **stat bar** (dataset shape, PCA/MDS mean error and FN share, flagged
     count, runtime);
-  - **Projections** — PCA and MDS scatter, points coloured on the signed scale;
+  - **Projections** — a unified panel with a **View / Brush** toggle: *View*
+    shows the PCA and MDS scatter coloured on the signed scale; *Brush* enables
+    box/lasso selection on either plot, rings the same points on both, and lists
+    them with their FP/FN breakdown below. The selection persists across the
+    View↔Brush toggle;
+  - **Error Space** — an integrated three-plot workspace showing the PCA
+    projection, the MDS projection, and the **error space** (PCA error vs MDS
+    error) side by side, all sharing one selection. Drag a box/lasso on *any* of
+    the three and the same points ring on all three, with a shared detail table.
+    Four **quadrant buttons** — *Both FP*, *Both FN*, *PCA-FP / MDS-FN*,
+    *PCA-FN / MDS-FP* — each carry a live count and, when clicked, select every
+    point whose PCA/MDS error signs match that quadrant (click again to clear).
+    A manual brush overrides the active quadrant; **Clear selection** resets all
+    three;
   - **Comparison** — per-point PCA error vs MDS error with sign quadrants;
-  - **Histograms** — signed-error distribution per method, tinted by the scale;
-  - **Parallel** — mean error per class across methods with a ±1σ band;
+  - **FP vs FN** — per-point intrusion (FP) against extrusion (FN) for each
+    method, with a net-zero diagonal, so it is clear which distortion dominates
+    each point;
+  - **Centroids** — each class centroid traced across high-D → PCA → MDS on a
+    normalised frame, plus the mean between-centroid distance per stage, showing
+    which classes a method pulls apart or compresses and whether class
+    separation is preserved;
+  - **Histograms** — signed-error distribution per method, tinted by the scale,
+    with a horizontal **mean ± 2σ** band on the bin counts;
   - **Point table** — every flagged point decomposed into FP (intrusion) and FN
     (extrusion) for both methods, sortable by any column.
-- **Brushing tab** — drag a rectangle (box- or lasso-select) on either the PCA
-  or MDS plot; the same points ring on **both** and are listed with their full
-  FP/FN breakdown. Selection works in either direction.
 - **Console panel** — a collapsible drawer that shows the exact stdout the
   pipeline produced (dataset summary, first errors, untrustworthy report, sign
   disagreements, timing). Errors surface here too.
@@ -113,5 +132,11 @@ numeric column is treated as a feature.
   balance, or use `intrusion` for a genuine FP/FN mix.
 - **`distance` weighting** produces smaller magnitudes than `rank`; pair it with
   a `tanh` or `sum-abs` normalization for contrast.
+- **Weighted MDS** rebuilds only the MDS panel from a precomputed
+  weighted-Euclidean dissimilarity (each feature scaled by `sqrt(weight)`); PCA
+  and the high-D reference stay unweighted. With standardization on,
+  `inverse variance` weights are ~uniform (every column already has unit
+  variance) — `mutual info` or `correlation` show a clearer effect there. The
+  computed weight vector (min/max) is printed to the console.
 - Results persist in `runs_store.json`. Delete it (or use **Clear stored runs**)
   to reset. Incognito/again-from-scratch: just remove that file.

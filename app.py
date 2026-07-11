@@ -19,9 +19,12 @@ from typing import Any
 
 import numpy as np
 from flask import Flask, jsonify, request, send_from_directory
+from sklearn.decomposition import PCA
+from sklearn.metrics import pairwise_distances
 
 from error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
-                        build_projections, compute_errors)
+                        build_projections, compute_errors,
+                        compute_feature_weights)
 from utils import describe, build_fname_tag, nice_vmax, normalize_errors
 
 APP_DIR = Path(__file__).parent
@@ -72,13 +75,44 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     max_samples = int(max_samples) if max_samples else None
     standardize = not bool(params.get("no_standardize", False))
     threshold = float(params.get("threshold", 0.5))
+    weighted_mds = bool(params.get("weighted_mds", False))
+    weight_method = params.get("weight_method", "inverse_variance")
+    custom_weights = params.get("custom_weights") or None
+    weight_info = None
 
     with redirect_stdout(buf):
         X, y, target_names, name = load_dataset(dataset, csv_path, label_col)
         describe(X, y, target_names, name)
         X, y, ids = maybe_subsample(X, y, max_samples)
 
-        proj, X_high = build_projections(X, standardize=standardize)
+        feature_weights = None
+        if weighted_mds:
+            try:
+                # weights are computed on the (optionally standardized) array so
+                # they match the space MDS actually embeds
+                from sklearn.preprocessing import StandardScaler as _SS
+                X_for_w = _SS().fit_transform(X) if standardize else np.asarray(X, float)
+                feature_weights = compute_feature_weights(
+                    X_for_w, labels=y, method=weight_method,
+                    custom=custom_weights)
+                weight_info = {
+                    "method": weight_method,
+                    "weights": [round(float(w), 4) for w in feature_weights],
+                    "min": round(float(np.min(feature_weights)), 4),
+                    "max": round(float(np.max(feature_weights)), 4),
+                }
+                print(f"\n[weighted MDS] method={weight_method}  "
+                      f"weights min={feature_weights.min():.3f} "
+                      f"max={feature_weights.max():.3f} (mean 1.0)")
+            except Exception as we:
+                print(f"[weighted MDS] could not compute weights ({we}); "
+                      "falling back to plain Euclidean MDS")
+                feature_weights = None
+                weighted_mds = False
+
+        proj, X_high = build_projections(
+            X, standardize=standardize, weighted_mds=weighted_mds,
+            feature_weights=feature_weights)
         class_aware = not geometric
 
         errs, fps, fns = compute_errors(
@@ -148,6 +182,10 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         "untrustworthy_count": len(report_rows),
     }
 
+    # class-centroid trajectories (high-D -> PCA -> MDS, comparable frames)
+    centroids = _centroid_trajectories(
+        X_high, proj["PCA"], proj["MDS"], y, target_names, classes)
+
     return {
         "ok": True,
         "params": params,
@@ -158,9 +196,80 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         "table": table,
         "untrustworthy": report_rows,
         "summary": summary,
+        "centroids": centroids,
+        "weight_info": weight_info,
         "console": console,
         "metric": metric,
         "timestamp": time.time(),
+    }
+
+
+def _class_centroids(coords: np.ndarray, labels: np.ndarray,
+                     classes: np.ndarray) -> np.ndarray:
+    """Mean position of each class in ``classes`` for a 2-D coordinate array."""
+    return np.array([coords[labels == c].mean(axis=0) for c in classes])
+
+
+def _normalize_frame(cent: np.ndarray) -> np.ndarray:
+    """Centre a set of 2-D centroids and scale so their RMS radius is 1.
+
+    This puts every space (high-D reference, PCA, MDS) on a comparable frame so
+    the *relative* class geometry — how spread out and how separated the classes
+    are — can be compared across representations on one canvas.
+    """
+    c = cent - cent.mean(axis=0)
+    rms = np.sqrt((c ** 2).sum(axis=1).mean())
+    return c / rms if rms > 0 else c
+
+
+def _centroid_trajectories(X_high: np.ndarray, pca_2d: np.ndarray,
+                           mds_2d: np.ndarray, labels: np.ndarray,
+                           target_names, classes: np.ndarray) -> dict:
+    """Trace each class centroid across high-D (via PCA of the centroids), PCA
+    and MDS, each frame normalised so between-class geometry is comparable.
+
+    The high-D centroids live in feature space; to place them on the same 2-D
+    canvas they are projected with a PCA fit on the centroids themselves (a
+    faithful 2-D view of the between-class configuration). PCA and MDS centroids
+    are taken directly from those embeddings. Every stage is then centred and
+    RMS-normalised. Also returns mean pairwise between-centroid distances per
+    stage (on the normalised frame) so preservation of class separation is
+    quantifiable.
+    """
+    hi_cent = _class_centroids(X_high, labels, classes)
+    if hi_cent.shape[0] >= 2 and hi_cent.shape[1] > 2:
+        hi_2d = PCA(n_components=2, random_state=42).fit_transform(hi_cent)
+    elif hi_cent.shape[1] == 2:
+        hi_2d = hi_cent
+    else:                                   # 1 class or 1 feature — pad
+        hi_2d = np.column_stack([hi_cent[:, 0],
+                                 np.zeros(hi_cent.shape[0])]) \
+            if hi_cent.shape[1] else np.zeros((hi_cent.shape[0], 2))
+
+    pca_cent = _class_centroids(pca_2d, labels, classes)
+    mds_cent = _class_centroids(mds_2d, labels, classes)
+
+    stages = {
+        "High-D": _normalize_frame(hi_2d),
+        "PCA": _normalize_frame(pca_cent),
+        "MDS": _normalize_frame(mds_cent),
+    }
+
+    def _mean_pairwise(c: np.ndarray) -> float:
+        if c.shape[0] < 2:
+            return 0.0
+        d = pairwise_distances(c)
+        iu = np.triu_indices(c.shape[0], k=1)
+        return float(d[iu].mean())
+
+    return {
+        "stage_names": list(stages),
+        "classes": [target_names[c] if c < len(target_names) else str(c)
+                    for c in classes],
+        "class_codes": [int(c) for c in classes],
+        "coords": {s: pts.tolist() for s, pts in stages.items()},
+        "mean_between": {s: round(_mean_pairwise(pts), 4)
+                         for s, pts in stages.items()},
     }
 
 

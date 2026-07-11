@@ -35,7 +35,7 @@
 
   <div class="workspace">
 
-    <!-- ============ CONTROL RAIL ============ -->
+    <!-- ============ CONTROL RAIL (now at top) ============ -->
     <aside class="rail" id="rail">
       <div class="rail-scroll">
 
@@ -48,18 +48,6 @@
             <span class="field-label">Dataset</span>
             <select id="dataset" class="inp"></select>
           </label>
-          <!-- 
-          <div class="csv-zone">
-            <label class="csv-upload" id="csvLabel">
-              <input type="file" id="csvFile" accept=".csv" hidden>
-              <span id="csvText">or drop a CSV…</span>
-            </label>
-            <label class="field field-inline" id="labelColField" hidden>
-              <span class="field-label">Label column</span>
-              <select id="labelCol" class="inp"></select>
-            </label>
-          </div>
-          -->
           <label class="field">
             <span class="field-label">Max samples <span class="hint">MDS is O(n²)</span></span>
             <input type="number" id="maxSamples" class="inp" placeholder="all" min="10" step="10">
@@ -67,6 +55,23 @@
           <label class="check">
             <input type="checkbox" id="noStandardize">
             <span>Skip standardization</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="weightedMds">
+            <span>Weighted MDS <span class="hint">weighted Euclidean</span></span>
+          </label>
+          <label class="field" id="weightMethodField" hidden>
+            <span class="field-label">Weight method</span>
+            <select id="weightMethod" class="inp">
+              <option value="inverse_variance">inverse variance</option>
+              <option value="correlation">correlation</option>
+              <option value="mutual_info">mutual info</option>
+              <option value="custom">custom</option>
+            </select>
+          </label>
+          <label class="field" id="customWeightsField" hidden>
+            <span class="field-label">Custom weights <span class="hint">comma-separated, one per feature</span></span>
+            <input type="text" id="customWeights" class="inp" placeholder="e.g. 1, 0.5, 2, 1, ...">
           </label>
         </section>
 
@@ -138,14 +143,15 @@
 
       </div>
 
+      <!-- Run button at bottom of rail -->
       <div class="rail-foot">
         <button id="runBtn" class="run-btn">
           <span class="run-btn-label">Run analysis</span>
           <span class="run-btn-kbd">⏎</span>
         </button>
-        <!--
-        <button id="clearBtn" class="ghost-btn">Clear stored runs</button>
-        -->
+        <button id="clearBtn" class="ghost-btn" style="margin-top: 8px;">
+          Clear results
+        </button>
       </div>
     </aside>
 
@@ -162,7 +168,7 @@
           </div>
         </div>
         <h3>No analysis yet</h3>
-        <p>Set your parameters on the left and run the pipeline. Results, tables and the console output will appear here and persist across sessions.</p>
+        <p>Set your parameters above and click <strong>Run analysis</strong>. Results, tables and the console output will appear here and persist across sessions.</p>
       </div>
 
       <!-- results body -->
@@ -172,18 +178,85 @@
 
         <nav class="tabs" id="tabs">
           <button class="tab active" data-tab="projections">Projections</button>
+          <button class="tab" data-tab="errorspace">Error Space</button>
           <button class="tab" data-tab="comparison">Comparison</button>
+          <button class="tab" data-tab="balance">FP vs FN</button>
+          <button class="tab" data-tab="centroids">Centroids</button>
           <button class="tab" data-tab="histograms">Histograms</button>
-          <button class="tab" data-tab="parallel">Parallel</button>
           <button class="tab" data-tab="table">Point table</button>
-          <button class="tab" data-tab="brushing">Brushing</button>
         </nav>
 
         <section class="panel active" data-panel="projections">
-          <div class="panel-caption">Each point coloured by signed error. Red points read as false-negative (a true neighbour pushed away); blue as false-positive (a false closeness asserted).</div>
+          <div class="panel-caption">Each point coloured by signed error. Red points read as false-negative (a true neighbour pushed away); blue as false-positive (a false closeness asserted). Switch to <strong>Brush</strong> to select a region on either plot and see the same points ring on both.</div>
+          <div class="proj-toolbar">
+            <div class="seg seg-sm proj-mode-seg" id="projModeSeg" role="tablist">
+              <span class="seg-cap">mode</span>
+              <button class="seg-btn active" data-mode="view" role="tab">View</button>
+              <button class="seg-btn" data-mode="brush" role="tab">Brush</button>
+            </div>
+            <button class="ghost-btn ghost-btn-sm" id="brushClear" hidden>Clear selection</button>
+          </div>
           <div class="dual-plot">
             <div class="plot" id="projPca"></div>
             <div class="plot" id="projMds"></div>
+          </div>
+          <div class="brush-detail" id="brushDetail" hidden>
+            <div class="brush-detail-head">
+              <span id="brushCount">No points selected</span>
+            </div>
+            <div class="table-wrap table-wrap-sm">
+              <table class="dtable" id="brushTable">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="errorspace">
+          <div class="panel-caption">Integrated exploration across all three views at once: the <strong>PCA</strong> and <strong>MDS</strong> projections and the <strong>error space</strong> (PCA error vs MDS error). Drag a box or lasso on <em>any</em> plot to select points — the same points ring on all three. Or click a quadrant below to select every point whose PCA/MDS error signs match. Selection detail appears in the shared table.</div>
+
+          <div class="es-quadrants" id="esQuadrants">
+            <button class="es-quad" data-quad="bothFP">
+              <span class="es-quad-key">Both FP</span>
+              <span class="es-quad-desc">PCA&nbsp;&gt;0 · MDS&nbsp;&gt;0</span>
+              <span class="es-quad-count" data-count="bothFP">0</span>
+            </button>
+            <button class="es-quad" data-quad="bothFN">
+              <span class="es-quad-key">Both FN</span>
+              <span class="es-quad-desc">PCA&nbsp;&lt;0 · MDS&nbsp;&lt;0</span>
+              <span class="es-quad-count" data-count="bothFN">0</span>
+            </button>
+            <button class="es-quad" data-quad="pcaFPmdsFN">
+              <span class="es-quad-key">PCA-FP / MDS-FN</span>
+              <span class="es-quad-desc">PCA&nbsp;&gt;0 · MDS&nbsp;&lt;0</span>
+              <span class="es-quad-count" data-count="pcaFPmdsFN">0</span>
+            </button>
+            <button class="es-quad" data-quad="pcaFNmdsFP">
+              <span class="es-quad-key">PCA-FN / MDS-FP</span>
+              <span class="es-quad-desc">PCA&nbsp;&lt;0 · MDS&nbsp;&gt;0</span>
+              <span class="es-quad-count" data-count="pcaFNmdsFP">0</span>
+            </button>
+            <button class="ghost-btn ghost-btn-sm es-clear" id="esClear">Clear selection</button>
+          </div>
+
+          <div class="es-grid">
+            <div class="plot es-plot" id="esPca"></div>
+            <div class="plot es-plot" id="esMds"></div>
+            <div class="plot es-plot" id="esErr"></div>
+          </div>
+
+          <div class="brush-detail" id="esDetail">
+            <div class="brush-detail-head">
+              <span id="esCount">No points selected — drag on any plot or pick a quadrant</span>
+              <span class="es-detail-tag" id="esSource"></span>
+            </div>
+            <div class="table-wrap table-wrap-sm">
+              <table class="dtable" id="esTable">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -192,17 +265,26 @@
           <div class="plot plot-square" id="cmpPlot"></div>
         </section>
 
+        <section class="panel" data-panel="balance">
+          <div class="panel-caption">Per-point intrusion (FP) against extrusion (FN) for each method. Points in the upper-right suffer both distortions at once; points hugging an axis are dominated by one type. The dotted diagonal marks FP ≈ FN, where the net signed error cancels to zero.</div>
+          <div class="dual-plot">
+            <div class="plot" id="balPca"></div>
+            <div class="plot" id="balMds"></div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="centroids">
+          <div class="panel-caption">Each class centroid traced across high-D (a 2-D PCA view of the class means), PCA and MDS. Every stage is centred and RMS-normalised so the <em>relative</em> class configuration is comparable: a class that drifts far between stages is one a method pulls apart or compresses. The mean between-centroid distance per stage (below) quantifies whether class separation is preserved.</div>
+          <div class="plot plot-wide" id="centPlot"></div>
+          <div class="cent-meta" id="centMeta"></div>
+        </section>
+
         <section class="panel" data-panel="histograms">
-          <div class="panel-caption">Distribution of signed error per method. The dotted line marks the mean; a left-leaning mass indicates a method that mostly loses true neighbours.</div>
+          <div class="panel-caption">Distribution of signed error per method. The dashed line marks zero; the horizontal band marks the mean bin count ± 2σ across bins.</div>
           <div class="dual-plot">
             <div class="plot" id="histPca"></div>
             <div class="plot" id="histMds"></div>
           </div>
-        </section>
-
-        <section class="panel" data-panel="parallel">
-          <div class="panel-caption">Mean signed error per class across methods, with a ±1σ band. A line that swings between axes marks a class one method embeds faithfully and the other distorts.</div>
-          <div class="plot plot-wide" id="parPlot"></div>
         </section>
 
         <section class="panel" data-panel="table">
@@ -212,26 +294,6 @@
               <thead></thead>
               <tbody></tbody>
             </table>
-          </div>
-        </section>
-
-        <section class="panel" data-panel="brushing">
-          <div class="panel-caption">Drag a rectangle on either plot to select a region; the same points ring on both. Selected points are listed below. Use the box- or lasso-select tool in each plot's toolbar.</div>
-          <div class="dual-plot">
-            <div class="plot" id="brushPca"></div>
-            <div class="plot" id="brushMds"></div>
-          </div>
-          <div class="brush-detail" id="brushDetail">
-            <div class="brush-detail-head">
-              <span id="brushCount">No points selected</span>
-              <button class="ghost-btn ghost-btn-sm" id="brushClear">Clear selection</button>
-            </div>
-            <div class="table-wrap table-wrap-sm">
-              <table class="dtable" id="brushTable">
-                <thead></thead>
-                <tbody></tbody>
-              </table>
-            </div>
           </div>
         </section>
 
