@@ -55,7 +55,7 @@ class LinkedBrush:
                  errors: Mapping[str, NDArray[np.float64]],
                  labels: Sequence[int], target_names: Sequence[str],
                  name: str) -> None:
-        self.names = list(projections)            # e.g. ["PCA", "MDS"]
+        self.names = list(projections)            
         self.proj = projections
         self.err = errors
         self.labels = np.asarray(labels)
@@ -66,8 +66,8 @@ class LinkedBrush:
 
         self.fig, self.axes = plt.subplots(1, 2, figsize=(14, 6))
         self.ax = dict(zip(self.names, self.axes))
-        self.pts = {}         # base scatter per axis (for hover hit-testing)
-        self.hl = {}          # highlight (ring) scatter per axis
+        self.pts = {}         # base scatter per axis 
+        self.hl = {}          # highlight scatter per axis
         self.selectors = []
 
         for m in self.names:
@@ -92,11 +92,11 @@ class LinkedBrush:
                                  ticks=[-self._vmax, 0, self._vmax])
         cbar.ax.set_yticklabels([f"FN (-{self._vmax:g})", "True (0)",
                                  f"FP (+{self._vmax:g})"])
-        self.fig.suptitle(f"{name} — linked brushing (drag a box on either plot; "
+        self.fig.suptitle(f"{name} : linked brushing (drag a box on either plot; "
                           "hover for details; FN red / True white / FP blue)",
                           fontsize=13)
 
-        # hover tooltip (one annotation, re-parented to whichever axis is hovered)
+        # hover tooltip 
         self._annot = None
         self._make_annotation(self.axes[0])
         self.fig.canvas.mpl_connect("motion_notify_event", self._on_hover)
@@ -125,7 +125,6 @@ class LinkedBrush:
         cont, info = self.pts[m].contains(event)
         if cont:
             i = int(info["ind"][0])
-            # re-anchor the annotation to the hovered axis
             if self._annot.axes is not event.inaxes:
                 self._annot.remove()
                 self._make_annotation(event.inaxes)

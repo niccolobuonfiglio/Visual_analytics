@@ -1,24 +1,20 @@
 """
 Shared core for the PCA/MDS continuous error-scale project (dataset-agnostic).
 
-No plotting / no matplotlib here on purpose, so both the static analysis script
+No plotting and no matplotlib here on purpose, so both the static analysis script
 and the interactive brushing tool can import it without backend conflicts.
 
 Two metric families are provided:
 
 Classic class-compactness scale (2D only)::
-
     error = -(alpha*d_same - beta*d_diff) / (alpha*d_same + beta*d_diff)   in [-1, +1]
         < 0  -> drawn toward OTHER classes    = FN (-1)
         > 0  -> tightly embedded in own class = FP (+1)
         = 0  -> equidistant (True)
-
-    (alpha = beta = 1 recovers the original professor scale.)
+    (alpha = beta = 1)
 
 Intrusion / extrusion scale (compares high-D to 2D), the default::
-
     error = FP - FN   in [-1, +1]
-
     where FP (intrusion) and FN (extrusion) are rank-severity-weighted and can
     be returned separately for diagnostics. Distance weighting (as opposed to
     rank weighting) is available via ``weight='distance'``.
@@ -41,8 +37,7 @@ from sklearn.metrics import pairwise_distances
 from sklearn.feature_selection import mutual_info_classif
 from sklearn.model_selection import train_test_split
 
-# re-exported so callers can keep importing describe from error_core if they like
-from utils import describe  # noqa: F401
+from utils import describe  
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 RANDOM_STATE = 42
@@ -63,10 +58,6 @@ def load_dataset(name: str = "wine", csv_path: Optional[str] = None,
                  label_col: Optional[str] = None
                  ) -> tuple[NDArray[np.float64], NDArray[np.int_], list[str], str]:
     """Return (X, y, target_names, dataset_name).
-
-    If ``csv_path`` is given, the named ``label_col`` becomes the class column
-    and every remaining numeric column becomes a feature; otherwise a built-in
-    sklearn loader named by ``name`` is used.
     """
     if csv_path:
         df = pd.read_csv(csv_path)
@@ -91,7 +82,6 @@ def maybe_subsample(X: NDArray[np.float64], y: NDArray[np.int_],
                     max_samples: Optional[int]
                     ) -> tuple[NDArray[np.float64], NDArray[np.int_], NDArray[np.int_]]:
     """Stratified subsample to keep MDS (O(n^2)) tractable on big data.
-
     Returns X, y, ids (ids = original row indices, for honest reporting).
     """
     ids = np.arange(len(y))
@@ -123,7 +113,7 @@ def compute_feature_weights(X: NDArray[np.float64],
     labels : sequence of int, optional
         Class labels; required for ``mutual_info``.
     method : {'inverse_variance', 'correlation', 'mutual_info', 'custom'}
-        - ``inverse_variance`` : ``1 / var`` per feature — down-weights noisy,
+        - ``inverse_variance`` : ``1 / var`` per feature, down-weights noisy,
           high-variance columns.
         - ``correlation`` : down-weight features that are redundant (highly
           correlated with the rest); weight ``1 - mean|corr to others|``.
@@ -172,9 +162,9 @@ def compute_feature_weights(X: NDArray[np.float64],
 
     w = np.clip(np.asarray(w, dtype=float), 0.0, None)
     total = w.sum()
-    if total <= 0:                          # degenerate -> fall back to uniform
+    if total <= 0:                          
         return np.ones(n_features)
-    return w * (n_features / total)         # normalise to mean 1
+    return w * (n_features / total)         
 
 
 def build_projections(X: NDArray[np.float64], standardize: bool = True,
@@ -209,9 +199,7 @@ def build_projections(X: NDArray[np.float64], standardize: bool = True,
     return {"PCA": pca, "MDS": mds}, Xp
 
 
-# ---------------------------------------------------------------------
-# Classic 2D class-compactness error (now with alpha/beta weighting)
-# ---------------------------------------------------------------------
+# Classic 2D class-compactness error (with alpha/beta weighting)
 def compute_error_scale(X_2d: NDArray[np.float64], labels: Sequence[int],
                         alpha: float = 1.0, beta: float = 1.0
                         ) -> NDArray[np.float64]:
@@ -238,9 +226,7 @@ def compute_error_scale(X_2d: NDArray[np.float64], labels: Sequence[int],
     return errors
 
 
-# ---------------------------------------------------------------------
 # Intrusion / extrusion error  (precision-vs-recall, FP - FN)
-# ---------------------------------------------------------------------
 def _ranks(D: NDArray[np.float64]) -> NDArray[np.int_]:
     """1-based rank of every point as a neighbour of every other (self = inf)."""
     D = D.copy()

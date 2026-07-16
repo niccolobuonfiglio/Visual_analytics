@@ -28,16 +28,14 @@ from error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
 from utils import describe, build_fname_tag, nice_vmax, normalize_errors
 
 APP_DIR = Path(__file__).parent
-STORE = APP_DIR / "runs_store.json"          # persisted runs
+STORE = APP_DIR / "runs_store.json"          
 UPLOAD_DIR = APP_DIR / "user_csvs"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 app = Flask(__name__, static_folder=str(APP_DIR / "static"), static_url_path="")
 
 
-# --------------------------------------------------------------------------
 # persistence helpers
-# --------------------------------------------------------------------------
 def _load_store() -> dict[str, Any]:
     if STORE.exists():
         try:
@@ -51,9 +49,7 @@ def _save_store(data: dict[str, Any]) -> None:
     STORE.write_text(json.dumps(data))
 
 
-# --------------------------------------------------------------------------
 # core analysis
-# --------------------------------------------------------------------------
 def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     """Execute the static pipeline, capturing stdout. Returns a JSON-ready dict."""
     buf = io.StringIO()
@@ -134,7 +130,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         else:
             vmax = nice_vmax(pca_err, mds_err)
 
-        # untrustworthy report (printed, and also structured for the table)
+        # untrustworthy report 
         report_rows = _report_untrustworthy(
             pca_err, mds_err, y, target_names, ids, threshold,
             fps["PCA"], fns["PCA"], fps["MDS"], fns["MDS"])
@@ -214,8 +210,8 @@ def _normalize_frame(cent: np.ndarray) -> np.ndarray:
     """Centre a set of 2-D centroids and scale so their RMS radius is 1.
 
     This puts every space (high-D reference, PCA, MDS) on a comparable frame so
-    the *relative* class geometry — how spread out and how separated the classes
-    are — can be compared across representations on one canvas.
+    the *relative* class geometry: how spread out and how separated the classes
+    are, can be compared across representations on one canvas.
     """
     c = cent - cent.mean(axis=0)
     rms = np.sqrt((c ** 2).sum(axis=1).mean())
@@ -241,7 +237,7 @@ def _centroid_trajectories(X_high: np.ndarray, pca_2d: np.ndarray,
         hi_2d = PCA(n_components=2, random_state=42).fit_transform(hi_cent)
     elif hi_cent.shape[1] == 2:
         hi_2d = hi_cent
-    else:                                   # 1 class or 1 feature — pad
+    else:                                   
         hi_2d = np.column_stack([hi_cent[:, 0],
                                  np.zeros(hi_cent.shape[0])]) \
             if hi_cent.shape[1] else np.zeros((hi_cent.shape[0], 2))
@@ -311,9 +307,7 @@ def _report_untrustworthy(pca_err, mds_err, labels, target_names, ids, thresh,
     return rows
 
 
-# --------------------------------------------------------------------------
 # routes
-# --------------------------------------------------------------------------
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
@@ -337,7 +331,7 @@ def run():
             "console": f"[error] {exc}\n\n{tb}",
         }), 200
 
-    # persist (keep last 20 runs)
+    # keep last 20 runs
     store = _load_store()
     store["runs"].insert(0, result)
     store["runs"] = store["runs"][:20]

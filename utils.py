@@ -19,7 +19,7 @@ from numpy.typing import ArrayLike, NDArray
 
 def describe(X: ArrayLike, y: ArrayLike, target_names: Sequence[str],
              name: str) -> None:
-    """Print a short human-readable summary of a labelled dataset.
+    """Short human-readable summary of a labelled dataset.
 
     Parameters
     ----------
@@ -47,9 +47,7 @@ def describe(X: ArrayLike, y: ArrayLike, target_names: Sequence[str],
 
 
 def resolve_outdir(base: str | Path, name: str, standardize: bool) -> Path:
-    """Return (creating if needed) ``<base>/<name>/<standardized|raw>/``.
-
-    Figures are bucketed per dataset and per preprocessing choice so repeated
+    """Figures are bucketed per dataset and per preprocessing choice so repeated
     runs with different settings never overwrite each other.
     """
     sub = "standardized" if standardize else "raw"
@@ -61,9 +59,6 @@ def resolve_outdir(base: str | Path, name: str, standardize: bool) -> Path:
 def build_fname_tag(name: str, metric: str, neighbors: int, geometric: bool,
                     adaptive: bool = False, normalize: str = "none") -> str:
     """Build a filename stem encoding the metric and its settings.
-
-    Ensures runs with different metrics / k / normalisation land in distinct
-    files, e.g. ``wine_intrusion_k10_class`` or ``wine_classic``.
     """
     if metric == "classic":
         tag = f"{name}_classic"
@@ -99,9 +94,9 @@ def normalize_errors(err: NDArray[np.float64], method: str = "none",
         Signed errors, nominally in ``[-1, 1]``.
     method : {'none', 'tanh', 'sigmoid', 'sumabs'}
         - ``none``   : returned unchanged.
-        - ``tanh``   : ``tanh(scale * err)`` — smooth, sign-preserving, keeps
+        - ``tanh``   : ``tanh(scale * err)`` ; smooth, sign-preserving, keeps
           small values roughly linear and saturates large ones.
-        - ``sigmoid``: signed logistic ``2*sigmoid(scale*err) - 1`` — similar
+        - ``sigmoid``: signed logistic ``2*sigmoid(scale*err) - 1``; similar
           to tanh but sharper near 0 for the same ``scale``.
         - ``sumabs`` : divide by the mean absolute error so the typical
           magnitude is ~1 (a soft, data-driven rescale rather than a squash).

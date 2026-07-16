@@ -3,7 +3,7 @@ Plotting layer for the PCA/MDS error-scale project.
 
 All matplotlib lives here (plus the brushing tool). Split out from the static
 analysis script so both front-ends can share the same figures. Every function
-takes already-computed errors and returns the saved path (or the Figure).
+takes already-computed errors and returns the saved path.
 
 Colour convention throughout: RdBu diverging, low->red (FN), 0->white,
 high->blue (FP), centred at 0 with a symmetric limit.
@@ -37,9 +37,7 @@ def _add_error_colorbar(fig: Figure, axes, norm: TwoSlopeNorm,
     cbar.ax.set_yticklabels([f"FN (-{vmax:g})", "True (0)", f"FP (+{vmax:g})"])
 
 
-# =====================================================================
 # SIDE-BY-SIDE PROJECTION PLOT
-# =====================================================================
 def plot_projections(pca_2d: NDArray[np.float64], pca_err: NDArray[np.float64],
                      mds_2d: NDArray[np.float64], mds_err: NDArray[np.float64],
                      name: str, outdir: str | Path, fname: str,
@@ -55,7 +53,7 @@ def plot_projections(pca_2d: NDArray[np.float64], pca_err: NDArray[np.float64],
         ax.set_xlabel("dim 1")
         ax.set_ylabel("dim 2")
     _add_error_colorbar(fig, axes, norm, vmax)
-    fig.suptitle(f"{name} — Error scale: FN (red) - FP (blue)",
+    fig.suptitle(f"{name} : Error scale: FN (red) - FP (blue)",
                  fontsize=14)
     out = Path(outdir) / f"{fname}_projections.png"
     fig.savefig(out, dpi=130, bbox_inches="tight")
@@ -64,9 +62,7 @@ def plot_projections(pca_2d: NDArray[np.float64], pca_err: NDArray[np.float64],
     return out
 
 
-# =====================================================================
 # PCA-ERROR vs MDS-ERROR SCATTER
-# =====================================================================
 def plot_error_comparison(pca_err: NDArray[np.float64],
                           mds_err: NDArray[np.float64], labels: ArrayLike,
                           target_names: Sequence[str], name: str,
@@ -81,10 +77,10 @@ def plot_error_comparison(pca_err: NDArray[np.float64],
     ax.axvline(0, color="grey", lw=1)
     ax.set_xlabel("PCA error")
     ax.set_ylabel("MDS error")
-    ax.set_title(f"{name} — PCA error vs MDS error (per point)")
+    ax.set_title(f"{name} : PCA error vs MDS error (per point)")
     ax.set_xlim(-vmax, vmax)
     ax.set_ylim(-vmax, vmax)
-    # quadrants (negated scale: <0 = FN, >0 = FP)
+    # quadrants
     ax.text(-0.95 * vmax, -0.95 * vmax, "both FN", ha="left", va="bottom",
             fontsize=9, alpha=0.7)
     ax.text(0.95 * vmax, 0.95 * vmax, "both FP", ha="right", va="top",
@@ -103,9 +99,7 @@ def plot_error_comparison(pca_err: NDArray[np.float64],
     return out
 
 
-# =====================================================================
 # ERROR HISTOGRAMS (PCA vs MDS, side by side)
-# =====================================================================
 def plot_error_histograms(errors: Mapping[str, NDArray[np.float64]], name: str,
                           outdir: str | Path, fname: str,
                           vmax: float = 1.0, bins: int = 30) -> Path:
@@ -135,7 +129,7 @@ def plot_error_histograms(errors: Mapping[str, NDArray[np.float64]], name: str,
         ax.set_xlabel("signed error  (FN < 0 < FP)")
         ax.legend(fontsize=8)
     axes[0].set_ylabel("count")
-    fig.suptitle(f"{name} — error distribution per method", fontsize=14)
+    fig.suptitle(f"{name} : error distribution per method", fontsize=14)
     out = Path(outdir) / f"{fname}_histograms.png"
     fig.savefig(out, dpi=130, bbox_inches="tight")
     plt.close(fig)
@@ -143,9 +137,7 @@ def plot_error_histograms(errors: Mapping[str, NDArray[np.float64]], name: str,
     return out
 
 
-# =====================================================================
 # PARALLEL COORDINATES (mean error per class across methods)
-# =====================================================================
 def plot_parallel_coordinates(errors: Mapping[str, NDArray[np.float64]],
                               labels: ArrayLike, target_names: Sequence[str],
                               name: str, outdir: str | Path, fname: str,
@@ -185,7 +177,7 @@ def plot_parallel_coordinates(errors: Mapping[str, NDArray[np.float64]],
     ax.set_xticklabels(names)
     ax.set_ylim(-vmax, vmax)
     ax.set_ylabel("mean signed error  (FN < 0 < FP)")
-    ax.set_title(f"{name} — mean error per class across methods")
+    ax.set_title(f"{name} : mean error per class across methods")
     ax.legend(title="class", fontsize=8, loc="best")
     out = Path(outdir) / f"{fname}_parallel.png"
     fig.savefig(out, dpi=130, bbox_inches="tight")

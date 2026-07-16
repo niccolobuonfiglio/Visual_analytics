@@ -35,9 +35,7 @@ from plotting import (plot_projections, plot_error_comparison,
                       plot_error_histograms, plot_parallel_coordinates)
 
 
-# =====================================================================
 # UNTRUSTWORTHY POINTS
-# =====================================================================
 def report_untrustworthy(pca_err: NDArray[np.float64],
                          mds_err: NDArray[np.float64], labels: NDArray[np.int_],
                          target_names: Sequence[str], ids: NDArray[np.int_],
@@ -78,9 +76,7 @@ def report_untrustworthy(pca_err: NDArray[np.float64],
     return df
 
 
-# =====================================================================
 # MAIN
-# =====================================================================
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Continuous PCA/MDS error scale.")
     p.add_argument("--dataset", default="wine", choices=list(SKLEARN_LOADERS),

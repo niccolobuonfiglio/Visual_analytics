@@ -1,20 +1,18 @@
-/* ============================================================
-   Projection Fidelity Console — frontend logic
-   ============================================================ */
+/* Projection Fidelity Console: frontend logic */
 
 const $ = (id) => document.getElementById(id);
 const state = {
   result: null,        // latest run result
   metric: 'intrusion',
   weight: 'rank',
-  projMode: 'view',    // 'view' | 'brush' — projections panel mode
+  projMode: 'view',    // 'view' | 'brush', projections panel mode
   brushSel: new Set(), // selected point indices (persists across mode switches)
   esSel: new Set(),    // Error Space: shared selection across all 3 plots
   esActiveQuad: null,  // Error Space: currently active quadrant button (or null)
   tableSort: { key: 'pca_error', dir: -1 },
 };
 
-/* ---- error scale colour (matches CSS: red FN → white → blue FP) ---- */
+/* error scale colour (matches CSS: red FN → white → blue FP) */
 const FN = [210, 75, 82], TRUE_ = [238, 241, 244], FP = [63, 124, 196];
 function lerp(a, b, t){ return a + (b - a) * t; }
 function scaleColor(v, vmax){
@@ -33,7 +31,7 @@ const DIVERGING = [
 const CLASS_PALETTE = ['#e0a54b','#4ea3a3','#b47cc8','#6f9f5b','#c8795a','#5a7fc8','#c85a8a','#8a8a5a'];
 function classColor(code){ return CLASS_PALETTE[code % CLASS_PALETTE.length]; }
 
-/* ---- shared Plotly layout bits (dark instrument theme) ---- */
+/* shared Plotly layout bits (dark instrument theme) */
 const AXIS = {
   gridcolor:'#20272f', zerolinecolor:'#33404f', linecolor:'#33404f',
   tickfont:{ family:'Space Mono, monospace', size:10, color:'#63707f' },
@@ -53,9 +51,7 @@ function baseLayout(extra={}){
 const PLOT_CONFIG = { displayModeBar:true, displaylogo:false, responsive:true,
   modeBarButtonsToRemove:['autoScale2d','toggleSpikelines'] };
 
-/* ============================================================
-   INIT
-   ============================================================ */
+/* INIT */
 async function init(){
   // Start with empty state visible, results hidden
   const emptyState = $('emptyState');
@@ -84,7 +80,7 @@ async function loadDatasets(){
   }catch(e){ toast('Could not load dataset list', true); }
 }
 
-/* ---- control binding ---- */
+/* control binding */
 function bindControls(){
   // live echoes
   const echo = (id, echoId, fmt=(v)=>v) => {
@@ -179,12 +175,12 @@ async function handleCsvUpload(){
     const lc = $('labelCol'); lc.innerHTML='';
     d.columns.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; lc.appendChild(o); });
     $('labelColField').hidden = false;
-    toast('CSV loaded — pick a label column');
+    toast('CSV loaded, pick a label column');
   }catch(e){ toast('upload error', true); }
 }
 */
 
-/* ---- collect params from the form ---- */
+/* collect params from the form */
 function collectParams(){
   const p = {
     dataset: $('dataset').value,
@@ -214,9 +210,7 @@ function collectParams(){
   return p;
 }
 
-/* ============================================================
-   RUN
-   ============================================================ */
+/* RUN */
 async function runAnalysis(){
   const btn = $('runBtn');
   if(btn.disabled) return;
@@ -234,7 +228,7 @@ async function runAnalysis(){
     setConsole(d.console || '(no output)');
     if(!d.ok){
       setConsoleDot('error');
-      toast(d.error || 'Analysis failed — see console', true);
+      toast(d.error || 'Analysis failed: see console', true);
       openConsole();
       return;
     }
@@ -303,7 +297,7 @@ function clearResults() {
   if (esTbody) esTbody.innerHTML = '';
   document.querySelectorAll('#esQuadrants .es-quad-count').forEach(el=>el.textContent='0');
   document.querySelectorAll('#esQuadrants .es-quad').forEach(b=>b.classList.remove('active'));
-  $('esCount').textContent = 'No points selected — drag on any plot or pick a quadrant';
+  $('esCount').textContent = 'No points selected: drag on any plot or pick a quadrant';
   $('esSource').textContent = ''; $('esSource').hidden = true;
   
   // Reset signal
@@ -315,7 +309,7 @@ function clearResults() {
   $('signalReadout').textContent = 'awaiting run';
   
   // Reset brush count
-  $('brushCount').textContent = 'No points selected — drag a box on either plot';
+  $('brushCount').textContent = 'No points selected: drag a box on either plot';
   
   toast('Results cleared');
 }
@@ -383,9 +377,7 @@ function applyParamsToForm(p){
   $('customWeightsField').hidden = !(p.weighted_mds && p.weight_method==='custom');
 }
 
-/* ============================================================
-   RENDER
-   ============================================================ */
+/* RENDER */
 function renderAll(d){
   const emptyState = $('emptyState');
   const resultBody = $('resultBody');
@@ -424,12 +416,12 @@ function safeRender(label, fn){
   catch(e){ console.error(`render[${label}] failed:`, e); }
 }
 function plotlyUnavailable(){
-  const msg = 'Plotting library did not load — check your network connection and reload. Tables and console output are available.';
+  const msg = 'Plotting library did not load: check your network connection and reload. Tables and console output are available.';
   ['projPca','projMds','cmpPlot','balPca','balMds','centPlot','histPca','histMds',
    'esPca','esMds','esErr'].forEach(id=>{
     const el=$(id); if(el) el.innerHTML=`<div class="plot-fallback">${msg}</div>`;
   });
-  toast('Plotting library unavailable — see tables instead', true);
+  toast('Plotting library unavailable: see tables instead', true);
 }
 
 function renderStatbar(d){
@@ -440,8 +432,8 @@ function renderStatbar(d){
     (sub?`<div class="stat-sub">${sub}</div>`:'')+`</div>`;
   const signCls = (v)=> v<0?'neg':(v>0?'pos':'');
   $('statbar').innerHTML =
-    pill('Dataset', info.name, '', `${info.standardized?'standardized':'raw'} · ${d.metric}`) +
-    pill('Samples', info.n_samples, '', `${info.n_features} features · ${info.n_classes} classes`) +
+    pill('Dataset', info.name, '', `${info.standardized?'standardized':'raw'} | ${d.metric}`) +
+    pill('Samples', info.n_samples, '', `${info.n_features} features | ${info.n_classes} classes`) +
     pill('PCA mean', d.summary.pca_mean.toFixed(3), signCls(s.pca_mean), `${(s.pca_fn_share*100).toFixed(0)}% FN`) +
     pill('MDS mean', d.summary.mds_mean.toFixed(3), signCls(s.mds_mean), `${(s.mds_fn_share*100).toFixed(0)}% FN`) +
     pill('Flagged', s.untrustworthy_count, '', `|error| ≥ ${d.params.threshold}`) +
@@ -484,7 +476,7 @@ function renderSignal(d){
   }
 }
 
-/* ---- projection scatter (one method) ---- */
+/* projection scatter (one method) */
 function projTrace(t, vmax){
   return {
     type:'scattergl', mode:'markers',
@@ -517,7 +509,7 @@ function renderProjections(d){
   else drawViewMode(d);
 }
 
-/* ---- View mode: static coloured scatter (the classic projection plots) ---- */
+/* View mode: static coloured scatter (the classic projection plots) */
 function drawViewMode(d){
   const vmax = d.vmax;
   const pca = withMeta(d.table.pca, d), mds = withMeta(d.table.mds, d);
@@ -531,14 +523,14 @@ function drawViewMode(d){
     PLOT_CONFIG);
 }
 
-/* ---- switch between View and Brush, preserving the current selection ---- */
+/* switch between View and Brush, preserving the current selection */
 function setProjMode(mode){
   if(mode===state.projMode) return;
   state.projMode = mode;
   if(state.result) renderProjections(state.result);
 }
 
-/* ---- comparison scatter ---- */
+/* comparison scatter */
 function renderComparison(d){
   const vmax = d.vmax;
   const labels = d.table.labels, names = d.table.class_names;
@@ -579,7 +571,7 @@ function quadLabel(x,y,text,xa,ya){
     font:{family:'Space Mono',size:9,color:'#63707f'} };
 }
 
-/* ---- histograms ---- */
+/* histograms */
 function renderHistograms(d){
   const vmax = d.vmax, bins=30;
   const edges=[]; for(let i=0;i<=bins;i++) edges.push(-vmax + (2*vmax)*i/bins);
@@ -633,7 +625,7 @@ function renderHistograms(d){
   build('histMds', d.table.mds.err, 'MDS');
 }
 
-/* ---- FP vs FN scatter (intrusion/extrusion balance), one panel per method ---- */
+/* FP vs FN scatter (intrusion/extrusion balance), one panel per method */
 function renderBalance(d){
   const labels=d.table.labels, names=d.table.class_names;
   const uniq=[...new Set(labels)].sort((a,b)=>a-b);
@@ -676,7 +668,7 @@ function renderBalance(d){
   build('balMds', d.table.mds, 'MDS');
 }
 
-/* ---- class-centroid trajectory: high-D -> PCA -> MDS ---- */
+/* class-centroid trajectory: high-D -> PCA -> MDS */
 function renderCentroids(d){
   const c=d.centroids;
   if(!c){ $('centPlot').innerHTML='<div class="plot-fallback">No centroid data in this run.</div>'; return; }
@@ -727,10 +719,10 @@ function renderCentroids(d){
   $('centMeta').innerHTML = stages.map(s=>
     `<span class="cent-stat"><span class="cent-stat-k">${s}</span>`+
     `<span class="cent-stat-v">${mb[s].toFixed(3)}</span></span>`
-  ).join('') + `<span class="cent-note">mean between-centroid distance (normalised) — similar values across stages ⇒ class separation preserved</span>`;
+  ).join('') + `<span class="cent-note">mean between-centroid distance (normalised), similar values across stages ⇒ class separation preserved</span>`;
 }
 
-/* ---- data table (sortable) ---- */
+/* data table (sortable) */
 const TABLE_COLS = [
   { key:'index', label:'index' },
   { key:'true_class', label:'class', cls:'col-class' },
@@ -745,7 +737,7 @@ function renderTable(d){
   const rows = d.untrustworthy.slice();
   $('tableMeta').innerHTML = rows.length
     ? `<span class="mono">${rows.length}</span> points flagged.`
-    : 'No points exceed the current threshold — try lowering it.';
+    : 'No points exceed the current threshold: try lowering it.';
   const thead = $('dtable').querySelector('thead');
   const tbody = $('dtable').querySelector('tbody');
   thead.innerHTML = '<tr>' + TABLE_COLS.map(c=>{
@@ -786,9 +778,7 @@ function renderTable(d){
   });
 }
 
-/* ============================================================
-   BRUSHING — linked rectangle selection (Brush mode of Projections)
-   ============================================================ */
+/* BRUSHING: linked rectangle selection (Brush mode of Projections) */
 function brushBaseTrace(t, vmax, d){
   return {
     type:'scattergl', mode:'markers',
@@ -806,7 +796,7 @@ function brushRingTrace(){
     marker:{ size:16, color:'rgba(0,0,0,0)', line:{color:'#7CFC4D',width:2.2} },
     hoverinfo:'skip', showlegend:false };
 }
-/* ---- Brush mode: selection-enabled scatter on the shared projection divs ---- */
+/* Brush mode: selection-enabled scatter on the shared projection divs */
 function drawBrushMode(d){
   const vmax=d.vmax;
   const layoutFor = (title)=> baseLayout({
@@ -851,7 +841,7 @@ function updateBrushDetail(d){
   const idx=[...state.brushSel];
   $('brushCount').textContent = idx.length
     ? `${idx.length} point${idx.length>1?'s':''} selected`
-    : 'No points selected — drag a box on either plot';
+    : 'No points selected: drag a box on either plot';
   const cols=[
     {k:'idx',l:'index'},{k:'cls',l:'class',cls:'col-class'},
     {k:'pe',l:'PCA err',err:true},{k:'me',l:'MDS err',err:true},
@@ -892,12 +882,11 @@ function clearBrushSelection(){
   }
 }
 
-/* ============================================================
-   ERROR SPACE — integrated PCA + MDS + error-space exploration
+/* ERROR SPACE: integrated PCA + MDS + error-space exploration
    Three linked plots share one selection. Cross-brushing on any
    plot, quadrant buttons, and a shared detail table all drive
    the same state.esSel.
-   ============================================================ */
+*/
 
 // which quadrant each point falls in, by PCA/MDS error sign
 const ES_QUADS = {
@@ -1069,7 +1058,7 @@ function updateEsDetail(d, source){
     pcaFPmdsFN:'PCA-FP / MDS-FN', pcaFNmdsFP:'PCA-FN / MDS-FP' };
   $('esCount').textContent = idx.length
     ? `${idx.length} point${idx.length>1?'s':''} selected`
-    : 'No points selected — drag on any plot or pick a quadrant';
+    : 'No points selected: drag on any plot or pick a quadrant';
   const tag=$('esSource');
   if(idx.length && state.esActiveQuad){ tag.textContent='quadrant · '+quadName[state.esActiveQuad]; tag.hidden=false; }
   else if(idx.length && source==='brush'){ tag.textContent='brushed'; tag.hidden=false; }
@@ -1096,9 +1085,7 @@ function updateEsDetail(d, source){
   }).join('')+'</tr>').join('');
 }
 
-/* ============================================================
-   TABS / CONSOLE / TOAST
-   ============================================================ */
+/* TABS / CONSOLE / TOAST */
 function bindTabs(){
   $('tabs').addEventListener('click',(e)=>{
     const t=e.target.closest('.tab'); if(!t) return;
@@ -1149,7 +1136,7 @@ function toast(msg, isErr=false){
   toastTimer=setTimeout(()=>{ t.classList.remove('show'); }, 3200);
 }
 
-/* ---- expose for debugging / testing ---- */
+/* expose for debugging / testing */
 window.state = state;
 window.applyBrush = applyBrush;
 window.setProjMode = setProjMode;
@@ -1158,5 +1145,4 @@ window.clearEsSelection = clearEsSelection;
 window.renderErrorSpace = renderErrorSpace;
 window.runAnalysis = runAnalysis;
 
-/* ---- go ---- */
 init();

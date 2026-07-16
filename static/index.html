@@ -35,7 +35,7 @@
 
   <div class="workspace">
 
-    <!-- ============ CONTROL RAIL (now at top) ============ -->
+    <!-- CONTROL RAIL -->
     <aside class="rail" id="rail">
       <div class="rail-scroll">
 
@@ -214,27 +214,27 @@
         </section>
 
         <section class="panel" data-panel="errorspace">
-          <div class="panel-caption">Integrated exploration across all three views at once: the <strong>PCA</strong> and <strong>MDS</strong> projections and the <strong>error space</strong> (PCA error vs MDS error). Drag a box or lasso on <em>any</em> plot to select points — the same points ring on all three. Or click a quadrant below to select every point whose PCA/MDS error signs match. Selection detail appears in the shared table.</div>
+          <div class="panel-caption">Integrated exploration across all three views at once: the <strong>PCA</strong> and <strong>MDS</strong> projections and the <strong>error space</strong> (PCA error vs MDS error). Drag a box or lasso on <em>any</em> plot to select points -> the same points ring on all three. Or click a quadrant below to select every point whose PCA/MDS error signs match. Selection detail appears in the shared table.</div>
 
           <div class="es-quadrants" id="esQuadrants">
             <button class="es-quad" data-quad="bothFP">
               <span class="es-quad-key">Both FP</span>
-              <span class="es-quad-desc">PCA&nbsp;&gt;0 · MDS&nbsp;&gt;0</span>
+              <span class="es-quad-desc">PCA&nbsp;&gt;0 | MDS&nbsp;&gt;0</span>
               <span class="es-quad-count" data-count="bothFP">0</span>
             </button>
             <button class="es-quad" data-quad="bothFN">
               <span class="es-quad-key">Both FN</span>
-              <span class="es-quad-desc">PCA&nbsp;&lt;0 · MDS&nbsp;&lt;0</span>
+              <span class="es-quad-desc">PCA&nbsp;&lt;0 | MDS&nbsp;&lt;0</span>
               <span class="es-quad-count" data-count="bothFN">0</span>
             </button>
             <button class="es-quad" data-quad="pcaFPmdsFN">
               <span class="es-quad-key">PCA-FP / MDS-FN</span>
-              <span class="es-quad-desc">PCA&nbsp;&gt;0 · MDS&nbsp;&lt;0</span>
+              <span class="es-quad-desc">PCA&nbsp;&gt;0 | MDS&nbsp;&lt;0</span>
               <span class="es-quad-count" data-count="pcaFPmdsFN">0</span>
             </button>
             <button class="es-quad" data-quad="pcaFNmdsFP">
               <span class="es-quad-key">PCA-FN / MDS-FP</span>
-              <span class="es-quad-desc">PCA&nbsp;&lt;0 · MDS&nbsp;&gt;0</span>
+              <span class="es-quad-desc">PCA&nbsp;&lt;0 | MDS&nbsp;&gt;0</span>
               <span class="es-quad-count" data-count="pcaFNmdsFP">0</span>
             </button>
             <button class="ghost-btn ghost-btn-sm es-clear" id="esClear">Clear selection</button>
@@ -248,7 +248,7 @@
 
           <div class="brush-detail" id="esDetail">
             <div class="brush-detail-head">
-              <span id="esCount">No points selected — drag on any plot or pick a quadrant</span>
+              <span id="esCount">No points selected: drag on any plot or pick a quadrant</span>
               <span class="es-detail-tag" id="esSource"></span>
             </div>
             <div class="table-wrap table-wrap-sm">
