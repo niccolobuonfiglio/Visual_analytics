@@ -15,19 +15,18 @@ panel around the false-negative → true → false-positive scale.
   `distance` weighting, adaptive-`k`, class-aware vs geometric, normalization
   (`none` / `tanh` / `sigmoid` / `sum-abs`) with steepness, classic `α`/`β`,
   `max_samples`, standardization, the untrustworthy threshold, and **Weighted
-  MDS** (weighted-Euclidean dissimilarity with `inverse variance` / `correlation`
-  / `mutual info` / `custom` feature weights).
+  MDS** (weighted-Euclidean dissimilarity with `mutual info` / `correlation`
+  / `custom` feature weights).
 - **Run analysis** executes the static pipeline server-side and shows:
   - a **stat bar** (dataset shape, PCA/MDS mean error and FN share, flagged
     count, runtime);
-  - **Projections** — a unified panel with a **View / Brush** toggle: *View*
-    shows the PCA and MDS scatter coloured on the signed scale; *Brush* enables
-    box/lasso selection on either plot, rings the same points on both, and lists
-    them with their FP/FN breakdown below. The selection persists across the
-    View↔Brush toggle;
-  - **Error Space** — an integrated three-plot workspace showing the PCA
-    projection, the MDS projection, and the **error space** (PCA error vs MDS
-    error) side by side, all sharing one selection. Drag a box/lasso on *any* of
+  - **Error Space** — the main workspace: the PCA and MDS projections on top and
+    the **error space** (PCA error vs MDS error) below, all sharing one selection.
+    Every point is **double-encoded** — *colour* is the signed error, *size* is
+    the total distortion |FP| + |FN| — so a balanced-but-badly-distorted point
+    (FP ≈ FN, error ≈ 0) reads white but **large**, while a genuinely faithful
+    point (FP ≈ FN ≈ 0) reads white and **small**. Colour alone cannot tell those
+    two apart. Drag a box/lasso on *any* of
     the three and the same points ring on all three, with a shared detail table.
     Four **quadrant buttons** — *Both FP*, *Both FN*, *PCA-FP / MDS-FN*,
     *PCA-FN / MDS-FP* — each carry a live count and, when clicked, select every
@@ -42,8 +41,12 @@ panel around the false-negative → true → false-positive scale.
     normalised frame, plus the mean between-centroid distance per stage, showing
     which classes a method pulls apart or compresses and whether class
     separation is preserved;
-  - **Histograms** — signed-error distribution per method, tinted by the scale,
-    with a horizontal **mean ± 2σ** band on the bin counts;
+  - **Histograms** — signed-error distribution per method, bars centred on their
+    bin value and tinted by the scale, each labelled with its count. A green
+    **median** line and two dashed **±2σ** lines (computed over *occupied* bins,
+    since most bins are empty) frame how uneven the distribution is; hovering a
+    bar reports its exact error interval. The **FP vs FN** panel is hidden for
+    the `classic` metric, which has no separable FP/FN components;
   - **Point table** — every flagged point decomposed into FP (intrusion) and FN
     (extrusion) for both methods, sortable by any column.
 - **Console panel** — a collapsible drawer that shows the exact stdout the
@@ -134,9 +137,7 @@ numeric column is treated as a feature.
   a `tanh` or `sum-abs` normalization for contrast.
 - **Weighted MDS** rebuilds only the MDS panel from a precomputed
   weighted-Euclidean dissimilarity (each feature scaled by `sqrt(weight)`); PCA
-  and the high-D reference stay unweighted. With standardization on,
-  `inverse variance` weights are ~uniform (every column already has unit
-  variance) — `mutual info` or `correlation` show a clearer effect there. The
-  computed weight vector (min/max) is printed to the console.
+  and the high-D reference stay unweighted. The computed weight vector (min/max)
+  is printed to the console.
 - Results persist in `runs_store.json`. Delete it (or use **Clear stored runs**)
   to reset. Incognito/again-from-scratch: just remove that file.

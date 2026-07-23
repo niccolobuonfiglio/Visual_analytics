@@ -109,16 +109,14 @@ def compute_feature_weights(X: NDArray[np.float64],
     ----------
     X : ndarray, shape (n_samples, n_features)
         Feature matrix the weights are computed from (already standardized when
-        standardization is on, so ``inverse_variance`` is ~uniform there).
+        standardization is on).
     labels : sequence of int, optional
         Class labels; required for ``mutual_info``.
-    method : {'inverse_variance', 'correlation', 'mutual_info', 'custom'}
-        - ``inverse_variance`` : ``1 / var`` per feature, down-weights noisy,
-          high-variance columns.
-        - ``correlation`` : down-weight features that are redundant (highly
-          correlated with the rest); weight ``1 - mean|corr to others|``.
+    method : {'mutual_info', 'correlation', 'custom'}
         - ``mutual_info`` : up-weight features informative about the class label
           (mutual information, needs ``labels``).
+        - ``correlation`` : down-weight features that are redundant (highly
+          correlated with the rest); weight ``1 - mean|corr to others|``.
         - ``custom`` : use the supplied ``custom`` vector verbatim.
     custom : sequence of float, optional
         Explicit weights, used when ``method='custom'``.
@@ -138,10 +136,6 @@ def compute_feature_weights(X: NDArray[np.float64],
         if w.shape[0] != n_features:
             raise ValueError(f"custom weights length {w.shape[0]} != "
                              f"feature count {n_features}.")
-    elif method == "inverse_variance":
-        var = X.var(axis=0)
-        w = 1.0 / np.where(var > 0, var, np.nan)
-        w = np.nan_to_num(w, nan=0.0)
     elif method == "correlation":
         if n_features < 2:
             w = np.ones(n_features)
@@ -158,7 +152,7 @@ def compute_feature_weights(X: NDArray[np.float64],
                                 random_state=RANDOM_STATE)
     else:
         raise ValueError(f"Unknown weight method '{method}'. Use "
-                         "inverse_variance, correlation, mutual_info or custom.")
+                         "mutual_info, correlation or custom.")
 
     w = np.clip(np.asarray(w, dtype=float), 0.0, None)
     total = w.sum()

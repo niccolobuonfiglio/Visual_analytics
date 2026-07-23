@@ -63,9 +63,8 @@
           <label class="field" id="weightMethodField" hidden>
             <span class="field-label">Weight method</span>
             <select id="weightMethod" class="inp">
-              <option value="inverse_variance">inverse variance</option>
-              <option value="correlation">correlation</option>
               <option value="mutual_info">mutual info</option>
+              <option value="correlation">correlation</option>
               <option value="custom">custom</option>
             </select>
           </label>
@@ -177,8 +176,7 @@
         <div class="statbar" id="statbar"></div>
 
         <nav class="tabs" id="tabs">
-          <button class="tab active" data-tab="projections">Projections</button>
-          <button class="tab" data-tab="errorspace">Error Space</button>
+          <button class="tab active" data-tab="errorspace">Error Space</button>
           <button class="tab" data-tab="comparison">Comparison</button>
           <button class="tab" data-tab="balance">FP vs FN</button>
           <button class="tab" data-tab="centroids">Centroids</button>
@@ -186,35 +184,8 @@
           <button class="tab" data-tab="table">Point table</button>
         </nav>
 
-        <section class="panel active" data-panel="projections">
-          <div class="panel-caption">Each point coloured by signed error. Red points read as false-negative (a true neighbour pushed away); blue as false-positive (a false closeness asserted). Switch to <strong>Brush</strong> to select a region on either plot and see the same points ring on both.</div>
-          <div class="proj-toolbar">
-            <div class="seg seg-sm proj-mode-seg" id="projModeSeg" role="tablist">
-              <span class="seg-cap">mode</span>
-              <button class="seg-btn active" data-mode="view" role="tab">View</button>
-              <button class="seg-btn" data-mode="brush" role="tab">Brush</button>
-            </div>
-            <button class="ghost-btn ghost-btn-sm" id="brushClear" hidden>Clear selection</button>
-          </div>
-          <div class="dual-plot">
-            <div class="plot" id="projPca"></div>
-            <div class="plot" id="projMds"></div>
-          </div>
-          <div class="brush-detail" id="brushDetail" hidden>
-            <div class="brush-detail-head">
-              <span id="brushCount">No points selected</span>
-            </div>
-            <div class="table-wrap table-wrap-sm">
-              <table class="dtable" id="brushTable">
-                <thead></thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel" data-panel="errorspace">
-          <div class="panel-caption">Integrated exploration across all three views at once: the <strong>PCA</strong> and <strong>MDS</strong> projections and the <strong>error space</strong> (PCA error vs MDS error). Drag a box or lasso on <em>any</em> plot to select points -> the same points ring on all three. Or click a quadrant below to select every point whose PCA/MDS error signs match. Selection detail appears in the shared table.</div>
+        <section class="panel active" data-panel="errorspace">
+          <div class="panel-caption">Integrated exploration across all three views at once: the <strong>PCA</strong> and <strong>MDS</strong> projections on top, and the <strong>error space</strong> (PCA error vs MDS error) below. Drag a box or lasso on <em>any</em> plot to select points -> the same points ring on all three. Or click a quadrant below to select every point whose PCA/MDS error signs match. Selection detail appears in the shared table.</div>
 
           <div class="es-quadrants" id="esQuadrants">
             <button class="es-quad" data-quad="bothFP">
@@ -240,10 +211,30 @@
             <button class="ghost-btn ghost-btn-sm es-clear" id="esClear">Clear selection</button>
           </div>
 
+          <!-- double-encoding legend: colour = signed error, size = total distortion -->
+          <div class="enc-legend" id="encLegend">
+            <div class="enc-item">
+              <span class="enc-key">colour</span>
+              <span class="enc-swatches" aria-hidden="true">
+                <i style="background:#d24b52"></i><i style="background:#e08a8f"></i><i style="background:#eef1f4"></i><i style="background:#82abd8"></i><i style="background:#3f7cc4"></i>
+              </span>
+              <span class="enc-desc">signed error &nbsp;FN&nbsp;<b>&minus;</b>&nbsp;&hellip;&nbsp;True&nbsp;&hellip;&nbsp;<b>+</b>&nbsp;FP</span>
+            </div>
+            <div class="enc-item">
+              <span class="enc-key">size</span>
+              <span class="enc-dots" aria-hidden="true">
+                <i class="d1"></i><i class="d2"></i><i class="d3"></i><i class="d4"></i>
+              </span>
+              <span class="enc-desc">total distortion &nbsp;|FP|&nbsp;+&nbsp;|FN|&nbsp;<span class="enc-note">— a big white point is badly distorted <em>both</em> ways; a small white point is genuinely faithful</span></span>
+            </div>
+          </div>
+
           <div class="es-grid">
             <div class="plot es-plot" id="esPca"></div>
             <div class="plot es-plot" id="esMds"></div>
-            <div class="plot es-plot" id="esErr"></div>
+          </div>
+          <div class="es-grid-bottom">
+            <div class="plot es-plot es-plot-err" id="esErr"></div>
           </div>
 
           <div class="brush-detail" id="esDetail">
@@ -280,7 +271,7 @@
         </section>
 
         <section class="panel" data-panel="histograms">
-          <div class="panel-caption">Distribution of signed error per method. The dashed line marks zero; the horizontal band marks the mean bin count ± 2σ across bins.</div>
+          <div class="panel-caption">Distribution of signed error per method, bars centred on their bin value and tinted by the scale. The green line marks the <strong>median</strong> count of an occupied bin, with the two dashed <strong>±2σ</strong> lines bounding the shaded band; bars poking above the upper line are unusually tall. Statistics use only non-empty bins, since the errors concentrate in a few bins and most stay empty. Hover any bar for its exact error interval and count.</div>
           <div class="dual-plot">
             <div class="plot" id="histPca"></div>
             <div class="plot" id="histMds"></div>

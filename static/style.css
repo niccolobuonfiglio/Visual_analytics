@@ -569,6 +569,8 @@ select.inp{
   color:var(--live);
   border-bottom-color:var(--live);
 }
+/* a tab can be hidden when its panel does not apply to the current metric */
+.tab[hidden]{ display:none; }
 
 .panel{ display:none; padding:22px; }
 .panel.active{ display:block; animation:fade .25s ease; }
@@ -660,22 +662,6 @@ select.inp{
   margin-right:7px;
   vertical-align:middle;
 }
-
-/* projections view/brush toolbar */
-.proj-toolbar{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:14px;
-  margin-bottom:14px;
-}
-.proj-mode-seg{
-  margin-bottom:0;
-  width:auto;
-  min-width:180px;
-}
-.proj-toolbar .ghost-btn-sm{ margin-top:0; }
-.proj-toolbar .ghost-btn-sm[hidden]{ display:none; }
 
 /* centroid trajectory meta readout */
 .cent-meta{
@@ -804,12 +790,24 @@ select.inp{
   padding:8px 14px;
 }
 
+/* top row: the two projections side by side */
 .es-grid{
   display:grid;
-  grid-template-columns:repeat(3, 1fr);
+  grid-template-columns:repeat(2, 1fr);
   gap:14px;
 }
-.es-plot{ min-height:340px; }
+/* bottom row: the error space, centred beneath them */
+.es-grid-bottom{
+  display:flex;
+  justify-content:center;
+  margin-top:14px;
+}
+.es-plot{ min-height:360px; }
+.es-plot-err{
+  width:100%;
+  max-width:620px;
+  min-height:460px;
+}
 
 .es-detail-tag{
   font-family:var(--mono);
@@ -822,6 +820,61 @@ select.inp{
   border-radius:2px;
 }
 .es-detail-tag[hidden]{ display:none; }
+
+/* ---------- DOUBLE-ENCODING LEGEND ---------- */
+.enc-legend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px 28px;
+  align-items:center;
+  padding:10px 14px;
+  margin-bottom:14px;
+  border:1px solid var(--line);
+  border-radius:3px;
+  background:var(--bg-panel);
+}
+.enc-item{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  min-width:0;
+}
+.enc-key{
+  font-family:var(--mono);
+  font-size:9px;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+  flex:0 0 auto;
+}
+.enc-swatches{ display:flex; flex:0 0 auto; }
+.enc-swatches i{
+  display:block;
+  width:15px; height:11px;
+  border:1px solid rgba(0,0,0,.35);
+  border-right:none;
+}
+.enc-swatches i:last-child{ border-right:1px solid rgba(0,0,0,.35); }
+.enc-dots{ display:flex; align-items:center; gap:5px; flex:0 0 auto; }
+.enc-dots i{
+  display:block;
+  border-radius:50%;
+  background:#8a94a0;
+  border:1px solid rgba(0,0,0,.4);
+}
+.enc-dots .d1{ width:5px;  height:5px; }
+.enc-dots .d2{ width:9px;  height:9px; }
+.enc-dots .d3{ width:14px; height:14px; }
+.enc-dots .d4{ width:19px; height:19px; }
+.enc-desc{
+  font-size:11px;
+  color:var(--ink-dim);
+  line-height:1.4;
+}
+.enc-note{
+  color:var(--ink-faint);
+  font-style:italic;
+}
 
 @media (max-width: 1080px){
   .es-grid{ grid-template-columns:1fr; }

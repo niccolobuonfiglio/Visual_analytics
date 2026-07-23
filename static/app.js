@@ -5,8 +5,6 @@ const state = {
   result: null,        // latest run result
   metric: 'intrusion',
   weight: 'rank',
-  projMode: 'view',    // 'view' | 'brush', projections panel mode
-  brushSel: new Set(), // selected point indices (persists across mode switches)
   esSel: new Set(),    // Error Space: shared selection across all 3 plots
   esActiveQuad: null,  // Error Space: currently active quadrant button (or null)
   tableSort: { key: 'pca_error', dir: -1 },
@@ -125,13 +123,6 @@ function bindControls(){
   $('weightedMds').addEventListener('change', syncWeighted);
   $('weightMethod').addEventListener('change', syncWeighted);
 
-  // projections View/Brush mode toggle
-  $('projModeSeg').addEventListener('click', (e)=>{
-    const b = e.target.closest('.seg-btn'); if(!b) return;
-    setProjMode(b.dataset.mode);
-  });
-  $('brushClear').addEventListener('click', clearBrushSelection);
-
   // CSV upload
   /*
   $('csvFile').addEventListener('change', handleCsvUpload);
@@ -248,8 +239,6 @@ async function runAnalysis(){
 function clearResults() {
   // Clear the state
   state.result = null;
-  state.brushSel = new Set();
-  state.projMode = 'view';
   state.esSel = new Set();
   state.esActiveQuad = null;
   
@@ -264,7 +253,7 @@ function clearResults() {
   setConsoleDot('');
   
   // Clear plots
-  ['projPca', 'projMds', 'cmpPlot', 'balPca', 'balMds', 'centPlot', 'histPca', 'histMds',
+  ['cmpPlot', 'balPca', 'balMds', 'centPlot', 'histPca', 'histMds',
    'esPca', 'esMds', 'esErr'].forEach(id => {
     const el = $(id);
     if (el) {
@@ -284,12 +273,6 @@ function clearResults() {
   if (thead) thead.innerHTML = '';
   if (tbody) tbody.innerHTML = '';
   
-  // Clear brush table
-  const brushThead = $('brushTable').querySelector('thead');
-  const brushTbody = $('brushTable').querySelector('tbody');
-  if (brushThead) brushThead.innerHTML = '';
-  if (brushTbody) brushTbody.innerHTML = '';
-
   // Clear Error Space table, counts, and source tag
   const esThead = $('esTable').querySelector('thead');
   const esTbody = $('esTable').querySelector('tbody');
@@ -307,10 +290,7 @@ function clearResults() {
   $('signalLabel').style.color = '#63707f';
   $('signalLabel').className = 'signal-label';
   $('signalReadout').textContent = 'awaiting run';
-  
-  // Reset brush count
-  $('brushCount').textContent = 'No points selected: drag a box on either plot';
-  
+
   toast('Results cleared');
 }
 
@@ -400,16 +380,37 @@ function renderAll(d){
     plotlyUnavailable();
     return;
   }
-  // reset projections to View mode on each fresh render, clear stale selection
-  state.brushSel = new Set();
+  // clear any stale selection from the previous run
   state.esSel = new Set();
   state.esActiveQuad = null;
-  safeRender('projections', ()=>renderProjections(d));
+  // the classic metric has no separable FP/FN (its "parts" are just the
+  // positive/negative halves of one score), so the FP-vs-FN panel is
+  // meaningless there and is hidden entirely
+  syncBalanceTab(d);
   safeRender('errorspace', ()=>renderErrorSpace(d));
   safeRender('comparison', ()=>renderComparison(d));
-  safeRender('balance', ()=>renderBalance(d));
+  if(hasSeparableParts(d)) safeRender('balance', ()=>renderBalance(d));
   safeRender('centroids', ()=>renderCentroids(d));
   safeRender('histograms', ()=>renderHistograms(d));
+}
+
+/** The intrusion metric computes genuine, independent FP and FN components.
+ *  The classic metric only splits one signed score into halves, so FP and FN
+ *  are never both non-zero and a FP-vs-FN scatter would be a degenerate "L". */
+function hasSeparableParts(d){ return d.metric !== 'classic'; }
+
+/** Show/hide the FP vs FN tab to match the metric, and move off it if it is
+ *  the active tab when it disappears. */
+function syncBalanceTab(d){
+  const show = hasSeparableParts(d);
+  const tab = document.querySelector('.tab[data-tab="balance"]');
+  const panel = document.querySelector('.panel[data-panel="balance"]');
+  if(!tab || !panel) return;
+  tab.hidden = !show;
+  if(!show && tab.classList.contains('active')){
+    // fall back to the Error Space tab
+    activateTab('errorspace');
+  }
 }
 function safeRender(label, fn){
   try{ fn(); }
@@ -417,7 +418,7 @@ function safeRender(label, fn){
 }
 function plotlyUnavailable(){
   const msg = 'Plotting library did not load: check your network connection and reload. Tables and console output are available.';
-  ['projPca','projMds','cmpPlot','balPca','balMds','centPlot','histPca','histMds',
+  ['cmpPlot','balPca','balMds','centPlot','histPca','histMds',
    'esPca','esMds','esErr'].forEach(id=>{
     const el=$(id); if(el) el.innerHTML=`<div class="plot-fallback">${msg}</div>`;
   });
@@ -476,58 +477,34 @@ function renderSignal(d){
   }
 }
 
-/* projection scatter (one method) */
-function projTrace(t, vmax){
-  return {
-    type:'scattergl', mode:'markers',
-    x:t.x, y:t.y,
-    marker:{
-      size:9, color:t.err, colorscale:DIVERGING, cmin:-vmax, cmax:vmax,
-      line:{ color:'rgba(0,0,0,0.55)', width:0.6 },
-      colorbar:{
-        thickness:10, len:0.82, x:1.0, tickfont:{family:'Space Mono',size:9,color:'#63707f'},
-        tickvals:[-vmax,0,vmax], ticktext:[`FN -${vmax}`,'0',`FP +${vmax}`],
-        outlinewidth:0, bgcolor:'rgba(0,0,0,0)'
-      }
-    },
-    customdata: t.err.map((e,i)=>[t.cls_names[i], t.ids[i], t.fp[i], t.fn[i]]),
-    hovertemplate:'idx %{customdata[1]} · %{customdata[0]}<br>error %{marker.color:.3f}<br>FP %{customdata[2]:.3f} · FN %{customdata[3]:.3f}<extra></extra>',
-  };
-}
-function withMeta(m, d){
-  return Object.assign({}, m, {
-    cls_names: d.table.class_names, ids: d.table.ids
-  });
-}
-function renderProjections(d){
-  // reflect current mode in the UI, then draw the plots for that mode
-  document.querySelectorAll('#projModeSeg .seg-btn').forEach(x=>
-    x.classList.toggle('active', x.dataset.mode===state.projMode));
-  $('brushClear').hidden = state.projMode!=='brush';
-  $('brushDetail').hidden = state.projMode!=='brush';
-  if(state.projMode==='brush') drawBrushMode(d);
-  else drawViewMode(d);
-}
+/* ============================================================
+   DOUBLE ENCODING
+   Colour alone is ambiguous: err = FP - FN, so a point with
+   FP = 0.6 and FN = 0.6 reads err = 0 -> white, exactly like a
+   point with FP = FN = 0 that is genuinely well embedded. The two
+   are opposites (severely distorted both ways vs faithful), so we
+   add a SECOND channel: marker size encodes total distortion
+   |FP| + |FN|. White + large = badly distorted but balanced;
+   white + small = truly faithful.
+   ============================================================ */
+const ES_SIZE_MIN = 5;    // px diameter for zero total distortion
+const ES_SIZE_MAX = 20;   // px diameter for the run's worst total distortion
 
-/* View mode: static coloured scatter (the classic projection plots) */
-function drawViewMode(d){
-  const vmax = d.vmax;
-  const pca = withMeta(d.table.pca, d), mds = withMeta(d.table.mds, d);
-  Plotly.react('projPca', [projTrace(pca, vmax)],
-    baseLayout({ title:{text:'PCA',font:{size:13,color:'#e8edf3'},x:0.02,xanchor:'left'},
-      xaxis:Object.assign({title:'dim 1'},AXIS), yaxis:Object.assign({title:'dim 2'},AXIS) }),
-    PLOT_CONFIG);
-  Plotly.react('projMds', [projTrace(mds, vmax)],
-    baseLayout({ title:{text:'MDS',font:{size:13,color:'#e8edf3'},x:0.02,xanchor:'left'},
-      xaxis:Object.assign({title:'dim 1'},AXIS), yaxis:Object.assign({title:'dim 2'},AXIS) }),
-    PLOT_CONFIG);
+/** total distortion |FP| + |FN| per point (the magnitude colour cannot show) */
+function totalDistortion(t){
+  return t.fp.map((v,i)=> Math.abs(v) + Math.abs(t.fn[i]));
 }
-
-/* switch between View and Brush, preserving the current selection */
-function setProjMode(mode){
-  if(mode===state.projMode) return;
-  state.projMode = mode;
-  if(state.result) renderProjections(state.result);
+/** Peak |FP|+|FN| across BOTH methods, so PCA and MDS share one size scale. */
+function distortionMax(d){
+  const all = totalDistortion(d.table.pca).concat(totalDistortion(d.table.mds));
+  const m = Math.max(...all, 0);
+  return m > 0 ? m : 1;   // guard: all-zero run -> every point stays at min size
+}
+/** Map total distortion -> marker diameter. sqrt so AREA grows ~linearly with
+ *  distortion (perceptually fairer than scaling the diameter directly). */
+function distortionSizes(tot, dmax){
+  return tot.map(v=> ES_SIZE_MIN +
+    (ES_SIZE_MAX - ES_SIZE_MIN) * Math.sqrt(Math.min(v, dmax) / dmax));
 }
 
 /* comparison scatter */
@@ -571,13 +548,24 @@ function quadLabel(x,y,text,xa,ya){
     font:{family:'Space Mono',size:9,color:'#63707f'} };
 }
 
-/* histograms */
+/* histograms
+   Bars are centred on their bin's midpoint (so a bar sits symmetrically over
+   the error value it represents) and hovering one reports the exact half-open
+   interval it covers. Horizontal reference lines summarise the bin COUNTS:
+   a green median line plus the two dashed +/-2 sigma lines bounding a shaded
+   band, so unusually tall bars are immediately obvious.               */
 function renderHistograms(d){
   const vmax = d.vmax, bins=30;
   const edges=[]; for(let i=0;i<=bins;i++) edges.push(-vmax + (2*vmax)*i/bins);
+  const binW = edges[1]-edges[0];
+
   function histTrace(err){
     const centres=[], counts=new Array(bins).fill(0), colors=[];
-    for(let i=0;i<bins;i++){ centres.push((edges[i]+edges[i+1])/2); colors.push(scaleColor(centres[i],vmax)); }
+    for(let i=0;i<bins;i++){
+      // bar is CENTRED on the bin midpoint -> it straddles [edge_i, edge_i+1]
+      centres.push((edges[i]+edges[i+1])/2);
+      colors.push(scaleColor(centres[i],vmax));
+    }
     err.forEach(v=>{
       const cv=Math.max(-vmax,Math.min(vmax,v));
       let b=Math.floor((cv+vmax)/(2*vmax)*bins); if(b>=bins)b=bins-1; if(b<0)b=0;
@@ -585,44 +573,103 @@ function renderHistograms(d){
     });
     return { centres, counts, colors };
   }
-  function build(divId, err, label){
-    const h=histTrace(err);
-    const bar={ type:'bar', x:h.centres, y:h.counts, marker:{color:h.colors,line:{color:'rgba(0,0,0,0.4)',width:0.4}},
-      width:(edges[1]-edges[0])*0.92, hovertemplate:'error %{x:.3f}<br>%{y} pts<extra></extra>' };
-    const maxc=Math.max(...h.counts,1);
+  const median = (arr)=>{
+    const s=[...arr].sort((a,b)=>a-b), n=s.length;
+    if(!n) return 0;
+    return n%2 ? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2;
+  };
 
-    // horizontal statistics on the bin COUNTS (vertical axis): mean ± 2σ
-    const meanCount = h.counts.reduce((a,b)=>a+b,0)/h.counts.length;
-    const sdCount = Math.sqrt(h.counts.reduce((a,b)=>a+(b-meanCount)**2,0)/h.counts.length);
-    const loBand = Math.max(0, meanCount-2*sdCount), hiBand = meanCount+2*sdCount;
+  // both panels share one y-range so PCA and MDS bar heights are comparable
+  const hP = histTrace(d.table.pca.err), hM = histTrace(d.table.mds.err);
+  const globalMax = Math.max(...hP.counts, ...hM.counts, 1);
+
+  function build(divId, err, label, h){
+    // ---- per-bar hover: exact interval + count + share of all points ----
+    const custom = h.counts.map((c,i)=>[
+      edges[i].toFixed(3), edges[i+1].toFixed(3), (100*c/err.length).toFixed(1),
+    ]);
+    const bar={
+      type:'bar', x:h.centres, y:h.counts,
+      marker:{color:h.colors, line:{color:'rgba(0,0,0,0.45)',width:0.5}},
+      width: binW*0.92,
+      customdata: custom,
+      // count printed on top of every non-empty bar
+      text: h.counts.map(c=> c>0 ? String(c) : ''),
+      textposition:'outside', textfont:{family:'Space Mono',size:9,color:'#9aa7b6'},
+      cliponaxis:false,
+      hovertemplate:'error interval [%{customdata[0]}, %{customdata[1]})<br>'+
+                    '<b>%{y}</b> points · %{customdata[2]}% of set<extra></extra>',
+      name:'count', showlegend:false,
+    };
+
+    // ---- horizontal statistics on the bin COUNTS ----
+    // Computed over OCCUPIED bins only. The signed-error distribution is
+    // typically concentrated in a handful of bins, so >half of them are empty
+    // and a median taken over all bins would simply be 0 -- a flat green line
+    // on the axis, with the -2 sigma bound below zero. Restricting to non-empty
+    // bins answers the useful question ("how tall is a typical populated bin?")
+    // and keeps every reference line inside the data.
+    const occupied = h.counts.filter(c=>c>0);
+    const medCount = median(occupied);
+    const meanCount = occupied.reduce((a,b)=>a+b,0)/(occupied.length||1);
+    const sdCount = Math.sqrt(
+      occupied.reduce((a,b)=>a+(b-meanCount)**2,0)/(occupied.length||1));
+    const loBand = medCount-2*sdCount, hiBand = medCount+2*sdCount;
     const xSpan=[-vmax,vmax];
 
-    // shaded ±2σ band around the mean count, drawn as a filled horizontal ribbon
+    // shaded +/-2 sigma band (drawn first so the lines sit on top of it)
     const band={ type:'scatter',mode:'lines',
       x:[xSpan[0],xSpan[1],xSpan[1],xSpan[0]],
-      y:[loBand,loBand,hiBand,hiBand],
-      fill:'toself', fillcolor:'rgba(232,237,243,0.09)',
+      y:[Math.max(0,loBand),Math.max(0,loBand),hiBand,hiBand],
+      fill:'toself', fillcolor:'rgba(232,237,243,0.07)',
       line:{width:0}, hoverinfo:'skip', showlegend:false };
-    // the mean-count line itself, carrying the legend label
-    const meanLine={ type:'scatter',mode:'lines',x:xSpan,y:[meanCount,meanCount],
-      line:{color:'#e8edf3',width:1.4,dash:'dot'},
-      name:`mean ± 2σ`, showlegend:true,
-      hovertemplate:`mean count ${meanCount.toFixed(1)} ± ${(2*sdCount).toFixed(1)}<extra></extra>` };
-    const zeroLine={ type:'scatter',mode:'lines',x:[0,0],y:[0,Math.max(maxc,hiBand)*1.05],
-      line:{color:'#63707f',width:1,dash:'dash'},hoverinfo:'skip',showlegend:false };
+    // the two sigma BOUNDARY lines, both explicitly drawn so they are visible
+    const sigHi={ type:'scatter',mode:'lines',x:xSpan,y:[hiBand,hiBand],
+      line:{color:'#8f9dad',width:1.2,dash:'dash'},
+      name:'median ± 2σ (occupied bins)', showlegend:true,
+      hovertemplate:`+2σ = ${hiBand.toFixed(1)} counts<extra></extra>` };
+    const sigLo={ type:'scatter',mode:'lines',x:xSpan,y:[loBand,loBand],
+      line:{color:'#8f9dad',width:1.2,dash:'dash'},
+      showlegend:false,
+      hovertemplate:`−2σ = ${loBand.toFixed(1)} counts<extra></extra>` };
+    // GREEN median-count line
+    const medLine={ type:'scatter',mode:'lines',x:xSpan,y:[medCount,medCount],
+      line:{color:'#4ec97a',width:1.8},
+      name:`median count = ${medCount} (${occupied.length}/${bins} bins used)`,
+      showlegend:true,
+      hovertemplate:`median count over occupied bins = ${medCount}<extra></extra>` };
 
-    Plotly.react(divId,[bar,zeroLine,band,meanLine], baseLayout({
-      title:{text:`${label}  ·  n=${err.length}`,font:{size:12,color:'#9aa7b6'},x:0.02,xanchor:'left'},
+    // ---- vertical reference: zero, and the median ERROR of the points ----
+    const headroom = Math.max(globalMax, hiBand)*1.16;
+    const zeroLine={ type:'scatter',mode:'lines',x:[0,0],y:[0,headroom],
+      line:{color:'#63707f',width:1,dash:'dash'},hoverinfo:'skip',showlegend:false };
+    const medErr = median(err);
+    const medErrLine={ type:'scatter',mode:'lines',x:[medErr,medErr],y:[0,headroom],
+      line:{color:'#4ec97a',width:1.2,dash:'dot'},
+      name:`median error = ${medErr>=0?'+':''}${medErr.toFixed(3)}`, showlegend:true,
+      hovertemplate:`median error ${medErr.toFixed(3)}<extra></extra>` };
+
+    // ---- distribution stats for the subtitle ----
+    const meanErr = err.reduce((a,b)=>a+b,0)/err.length;
+    const sdErr = Math.sqrt(err.reduce((a,b)=>a+(b-meanErr)**2,0)/err.length);
+    const fnShare = 100*err.filter(v=>v<0).length/err.length;
+    const skew = meanErr - medErr;   // >0 => a long FP tail pulls the mean right
+
+    Plotly.react(divId,[band,sigLo,sigHi,medLine,zeroLine,bar,medErrLine], baseLayout({
+      title:{ text:`${label}  ·  n=${err.length}  ·  mean ${meanErr>=0?'+':''}${meanErr.toFixed(3)}`+
+                   `  ·  σ ${sdErr.toFixed(3)}  ·  ${fnShare.toFixed(0)}% FN`+
+                   `  ·  tail ${skew>=0?'→FP':'→FN'}`,
+              font:{size:11,color:'#9aa7b6'},x:0.02,xanchor:'left' },
       bargap:0.04,
       showlegend:true,
-      legend:{ font:{size:10,color:'#9aa7b6'}, bgcolor:'rgba(21,26,33,0.7)',
-               bordercolor:'#262f3b', borderwidth:1, x:0.98, xanchor:'right', y:0.98 },
+      legend:{ font:{size:9,color:'#9aa7b6'}, bgcolor:'rgba(21,26,33,0.78)',
+               bordercolor:'#262f3b', borderwidth:1, x:0.99, xanchor:'right', y:0.99 },
       xaxis:Object.assign({title:'signed error (FN < 0 < FP)',range:[-vmax,vmax]},AXIS),
-      yaxis:Object.assign({title:'count',rangemode:'tozero'},AXIS),
+      yaxis:Object.assign({title:'count',rangemode:'tozero',range:[0,headroom]},AXIS),
     }),PLOT_CONFIG);
   }
-  build('histPca', d.table.pca.err, 'PCA');
-  build('histMds', d.table.mds.err, 'MDS');
+  build('histPca', d.table.pca.err, 'PCA', hP);
+  build('histMds', d.table.mds.err, 'MDS', hM);
 }
 
 /* FP vs FN scatter (intrusion/extrusion balance), one panel per method */
@@ -778,110 +825,6 @@ function renderTable(d){
   });
 }
 
-/* BRUSHING: linked rectangle selection (Brush mode of Projections) */
-function brushBaseTrace(t, vmax, d){
-  return {
-    type:'scattergl', mode:'markers',
-    x:t.x, y:t.y,
-    marker:{ size:8, color:t.err, colorscale:DIVERGING, cmin:-vmax, cmax:vmax,
-      line:{color:'rgba(0,0,0,0.5)',width:0.5} },
-    customdata: t.err.map((e,i)=>[d.table.class_names[i], d.table.ids[i]]),
-    hovertemplate:'idx %{customdata[1]} · %{customdata[0]}<br>error %{marker.color:.3f}<extra></extra>',
-    selected:{ marker:{ opacity:1 } },
-    unselected:{ marker:{ opacity:0.18 } },
-  };
-}
-function brushRingTrace(){
-  return { type:'scattergl', mode:'markers', x:[], y:[],
-    marker:{ size:16, color:'rgba(0,0,0,0)', line:{color:'#7CFC4D',width:2.2} },
-    hoverinfo:'skip', showlegend:false };
-}
-/* Brush mode: selection-enabled scatter on the shared projection divs */
-function drawBrushMode(d){
-  const vmax=d.vmax;
-  const layoutFor = (title)=> baseLayout({
-    title:{text:title,font:{size:13,color:'#e8edf3'},x:0.02,xanchor:'left'},
-    dragmode:'select',
-    xaxis:Object.assign({title:'dim 1'},AXIS), yaxis:Object.assign({title:'dim 2'},AXIS),
-  });
-  Plotly.react('projPca', [brushBaseTrace(d.table.pca,vmax,d), brushRingTrace()],
-    layoutFor('PCA'), Object.assign({}, PLOT_CONFIG, {modeBarButtonsToAdd:['select2d','lasso2d']}));
-  Plotly.react('projMds', [brushBaseTrace(d.table.mds,vmax,d), brushRingTrace()],
-    layoutFor('MDS'), Object.assign({}, PLOT_CONFIG, {modeBarButtonsToAdd:['select2d','lasso2d']}));
-
-  // bind selection events (once per div; Plotly re-emits on re-render)
-  bindBrush('projPca'); bindBrush('projMds');
-  applyBrush();   // re-apply any selection carried over from a previous mode switch
-}
-function bindBrush(divId){
-  const div=$(divId);
-  div.removeAllListeners?.('plotly_selected');
-  div.on('plotly_selected', (ev)=>{
-    if(!ev || !ev.points){ return; }
-    const sel=new Set(ev.points.map(p=>p.pointIndex));
-    state.brushSel = sel;
-    applyBrush();
-  });
-  div.on('plotly_deselect', ()=>{ state.brushSel=new Set(); applyBrush(); });
-}
-function applyBrush(){
-  const d=state.result; if(!d || state.projMode!=='brush') return;
-  const idx=[...state.brushSel];
-  // ring the same points on BOTH plots (trace index 1 = ring layer)
-  const ringPca={ x:idx.map(i=>d.table.pca.x[i]), y:idx.map(i=>d.table.pca.y[i]) };
-  const ringMds={ x:idx.map(i=>d.table.mds.x[i]), y:idx.map(i=>d.table.mds.y[i]) };
-  Plotly.restyle('projPca', {x:[ringPca.x], y:[ringPca.y]}, [1]);
-  Plotly.restyle('projMds', {x:[ringMds.x], y:[ringMds.y]}, [1]);
-  // reflect selection styling on both base traces
-  Plotly.restyle('projPca', {selectedpoints:[idx.length?idx:null]}, [0]);
-  Plotly.restyle('projMds', {selectedpoints:[idx.length?idx:null]}, [0]);
-  updateBrushDetail(d);
-}
-function updateBrushDetail(d){
-  const idx=[...state.brushSel];
-  $('brushCount').textContent = idx.length
-    ? `${idx.length} point${idx.length>1?'s':''} selected`
-    : 'No points selected: drag a box on either plot';
-  const cols=[
-    {k:'idx',l:'index'},{k:'cls',l:'class',cls:'col-class'},
-    {k:'pe',l:'PCA err',err:true},{k:'me',l:'MDS err',err:true},
-    {k:'pfp',l:'PCA FP',part:'fp'},{k:'pfn',l:'PCA FN',part:'fn'},
-    {k:'mfp',l:'MDS FP',part:'fp'},{k:'mfn',l:'MDS FN',part:'fn'},
-  ];
-  const thead=$('brushTable').querySelector('thead');
-  const tbody=$('brushTable').querySelector('tbody');
-  thead.innerHTML='<tr>'+cols.map(c=>`<th class="${c.cls||''}">${c.l}</th>`).join('')+'</tr>';
-  const rows=idx.map(i=>({
-    idx:d.table.ids[i], cls:d.table.class_names[i],
-    pe:d.table.pca.err[i], me:d.table.mds.err[i],
-    pfp:d.table.pca.fp[i], pfn:d.table.pca.fn[i],
-    mfp:d.table.mds.fp[i], mfn:d.table.mds.fn[i],
-  })).sort((a,b)=>a.pe-b.pe);
-  tbody.innerHTML = rows.map(r=>'<tr>'+cols.map(c=>{
-    let v=r[c.k];
-    if(c.cls==='col-class'){
-      const code=d.target_names.indexOf(v);
-      return `<td class="col-class"><span class="class-chip" style="background:${classColor(code<0?0:code)}"></span>${v}</td>`;
-    }
-    if(c.err){ const cl=v<0?'cell-fn':(v>0?'cell-fp':'cell-zero'); return `<td class="${cl}">${v>=0?'+':''}${v.toFixed(3)}</td>`; }
-    if(c.part){ const cl=v>0?(c.part==='fp'?'cell-fp':'cell-fn'):'cell-zero'; return `<td class="${cl}">${v.toFixed(3)}</td>`; }
-    return `<td>${v}</td>`;
-  }).join('')+'</tr>').join('');
-}
-function clearBrushSelection(){
-  state.brushSel=new Set();
-  if(state.result && state.projMode==='brush'){
-    Plotly.restyle('projPca',{x:[[]],y:[[]]},[1]);
-    Plotly.restyle('projMds',{x:[[]],y:[[]]},[1]);
-    Plotly.restyle('projPca',{selectedpoints:[null]},[0]);
-    Plotly.restyle('projMds',{selectedpoints:[null]},[0]);
-    // also drop Plotly's own selection outline
-    Plotly.relayout('projPca',{selections:[]});
-    Plotly.relayout('projMds',{selections:[]});
-    updateBrushDetail(state.result);
-  }
-}
-
 /* ERROR SPACE: integrated PCA + MDS + error-space exploration
    Three linked plots share one selection. Cross-brushing on any
    plot, quadrant buttons, and a shared detail table all drive
@@ -896,20 +839,35 @@ const ES_QUADS = {
   pcaFNmdsFP: (pe,me)=> pe<0 && me>0,
 };
 
-function esBaseTrace(t, vmax, d, kind){
-  // kind: 'proj' (x/y are coords) or 'err' (x/y are PCA/MDS error)
+function esBaseTrace(t, vmax, d, kind, dmax){
+  // kind: 'proj' (x/y are the method's 2-D coords) or 'err' (x/y are PCA/MDS error)
   const isErr = kind==='err';
+  // DOUBLE ENCODING -----------------------------------------------------
+  // colour = signed error (t.err); size = total distortion |FP| + |FN|.
+  // For the error-space plot a point's two axes already carry both methods'
+  // errors, so its "total distortion" is summed over BOTH methods.
+  const tot = isErr
+    ? d.table.pca.fp.map((v,i)=> Math.abs(v) + Math.abs(d.table.pca.fn[i]) +
+                                 Math.abs(d.table.mds.fp[i]) + Math.abs(d.table.mds.fn[i]))
+    : totalDistortion(t);
+  const scaleMax = isErr ? 2*dmax : dmax;   // err plot sums two methods
+  const sizes = distortionSizes(tot, scaleMax);
   return {
     type:'scattergl', mode:'markers',
     x: isErr ? d.table.pca.err : t.x,
     y: isErr ? d.table.mds.err : t.y,
-    marker:{ size:8, color: t.err, colorscale:DIVERGING, cmin:-vmax, cmax:vmax,
+    marker:{ size:sizes, color: t.err, colorscale:DIVERGING, cmin:-vmax, cmax:vmax,
       line:{color:'rgba(0,0,0,0.5)',width:0.5} },
     customdata: d.table.ids.map((id,i)=>[
-      d.table.class_names[i], id, d.table.pca.err[i], d.table.mds.err[i]]),
+      d.table.class_names[i], id, d.table.pca.err[i], d.table.mds.err[i],
+      t.fp[i], t.fn[i], tot[i]]),
     hovertemplate: isErr
-      ? 'idx %{customdata[1]} · %{customdata[0]}<br>PCA %{x:.3f} · MDS %{y:.3f}<extra></extra>'
-      : 'idx %{customdata[1]} · %{customdata[0]}<br>PCA err %{customdata[2]:.3f} · MDS err %{customdata[3]:.3f}<extra></extra>',
+      ? 'idx %{customdata[1]} · %{customdata[0]}<br>' +
+        'PCA err %{x:.3f} · MDS err %{y:.3f}<br>' +
+        'total distortion %{customdata[6]:.3f}<extra></extra>'
+      : 'idx %{customdata[1]} · %{customdata[0]}<br>' +
+        'error %{marker.color:.3f} &nbsp; (FP %{customdata[4]:.3f} · FN %{customdata[5]:.3f})<br>' +
+        'total distortion %{customdata[6]:.3f}<extra></extra>',
     selected:{ marker:{ opacity:1 } },
     unselected:{ marker:{ opacity:0.15 } },
   };
@@ -922,6 +880,7 @@ function esRingTrace(){
 
 function renderErrorSpace(d){
   const vmax=d.vmax;
+  const dmax=distortionMax(d);      // shared size scale across PCA and MDS
   const projLayout = (title)=> baseLayout({
     title:{text:title,font:{size:12,color:'#e8edf3'},x:0.03,xanchor:'left'},
     dragmode:'select',
@@ -947,11 +906,11 @@ function renderErrorSpace(d){
   });
   const cfg = Object.assign({}, PLOT_CONFIG, {modeBarButtonsToAdd:['select2d','lasso2d']});
 
-  Plotly.react('esPca', [esBaseTrace(d.table.pca,vmax,d,'proj'), esRingTrace()],
+  Plotly.react('esPca', [esBaseTrace(d.table.pca,vmax,d,'proj',dmax), esRingTrace()],
     projLayout('PCA'), cfg);
-  Plotly.react('esMds', [esBaseTrace(d.table.mds,vmax,d,'proj'), esRingTrace()],
+  Plotly.react('esMds', [esBaseTrace(d.table.mds,vmax,d,'proj',dmax), esRingTrace()],
     projLayout('MDS'), cfg);
-  Plotly.react('esErr', [esBaseTrace(d.table.pca,vmax,d,'err'), esRingTrace()],
+  Plotly.react('esErr', [esBaseTrace(d.table.pca,vmax,d,'err',dmax), esRingTrace()],
     errLayout, cfg);
 
   bindEsPlots();
@@ -1012,9 +971,18 @@ function applyEsSelection(d, source){
   const rP=ringXY(d.table.pca.x, d.table.pca.y);
   const rM=ringXY(d.table.mds.x, d.table.mds.y);
   const rE=ringXY(d.table.pca.err, d.table.mds.err);
-  Plotly.restyle('esPca', {x:[rP.x], y:[rP.y]}, [1]);
-  Plotly.restyle('esMds', {x:[rM.x], y:[rM.y]}, [1]);
-  Plotly.restyle('esErr', {x:[rE.x], y:[rE.y]}, [1]);
+  // rings must track each point's double-encoded size, or a big point's ring
+  // would sit inside it and a small point's ring would float far outside
+  const dmax=distortionMax(d);
+  const ringSizes = (sizes)=> idx.map(i=> sizes[i] + 7);
+  const szP = ringSizes(distortionSizes(totalDistortion(d.table.pca), dmax));
+  const szM = ringSizes(distortionSizes(totalDistortion(d.table.mds), dmax));
+  const totE = d.table.pca.fp.map((v,i)=> Math.abs(v) + Math.abs(d.table.pca.fn[i]) +
+                    Math.abs(d.table.mds.fp[i]) + Math.abs(d.table.mds.fn[i]));
+  const szE = ringSizes(distortionSizes(totE, 2*dmax));
+  Plotly.restyle('esPca', {x:[rP.x], y:[rP.y], 'marker.size':[szP]}, [1]);
+  Plotly.restyle('esMds', {x:[rM.x], y:[rM.y], 'marker.size':[szM]}, [1]);
+  Plotly.restyle('esErr', {x:[rE.x], y:[rE.y], 'marker.size':[szE]}, [1]);
   const sp=[idx.length?idx:null];
   Plotly.restyle('esPca', {selectedpoints:sp}, [0]);
   Plotly.restyle('esMds', {selectedpoints:sp}, [0]);
@@ -1086,20 +1054,22 @@ function updateEsDetail(d, source){
 }
 
 /* TABS / CONSOLE / TOAST */
+function activateTab(name){
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.dataset.panel===name));
+  // Plotly needs a resize nudge when a hidden plot becomes visible
+  setTimeout(()=>{
+    document.querySelectorAll(`.panel[data-panel="${name}"] .plot`).forEach(pl=>{
+      if(pl.data && typeof Plotly!=='undefined') Plotly.Plots.resize(pl);
+    });
+    // re-apply the Error Space rings after the resize so they stay aligned
+    if(name==='errorspace' && state.result) applyEsSelection(state.result, null);
+  }, 30);
+}
 function bindTabs(){
   $('tabs').addEventListener('click',(e)=>{
     const t=e.target.closest('.tab'); if(!t) return;
-    const name=t.dataset.tab;
-    document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===t));
-    document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.dataset.panel===name));
-    // Plotly needs a resize nudge when a hidden plot becomes visible
-    setTimeout(()=>{
-      document.querySelectorAll(`.panel[data-panel="${name}"] .plot`).forEach(pl=>{
-        if(pl.data) Plotly.Plots.resize(pl);
-      });
-      // re-apply the Error Space rings after the resize so they stay aligned
-      if(name==='errorspace' && state.result) applyEsSelection(state.result, null);
-    }, 30);
+    activateTab(t.dataset.tab);
   });
 }
 
@@ -1138,8 +1108,7 @@ function toast(msg, isErr=false){
 
 /* expose for debugging / testing */
 window.state = state;
-window.applyBrush = applyBrush;
-window.setProjMode = setProjMode;
+window.activateTab = activateTab;
 window.applyEsSelection = applyEsSelection;
 window.clearEsSelection = clearEsSelection;
 window.renderErrorSpace = renderErrorSpace;

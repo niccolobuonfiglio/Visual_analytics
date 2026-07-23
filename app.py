@@ -72,7 +72,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     standardize = not bool(params.get("no_standardize", False))
     threshold = float(params.get("threshold", 0.5))
     weighted_mds = bool(params.get("weighted_mds", False))
-    weight_method = params.get("weight_method", "inverse_variance")
+    weight_method = params.get("weight_method", "mutual_info")
     custom_weights = params.get("custom_weights") or None
     weight_info = None
 
