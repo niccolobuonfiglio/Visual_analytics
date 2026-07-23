@@ -177,9 +177,9 @@ function collectParams(){
     dataset: $('dataset').value,
     metric: state.metric,
     neighbors: parseInt($('neighbors').value),
-    geometric: $('geometric').checked,
+    geometric: false, // $('geometric').checked,  // commented out    
     weight: state.weight,
-    adaptive: $('adaptive').checked,
+    adaptive: false, // $('adaptive').checked,   // commented out    
     normalize: $('normalize').value,
     norm_scale: parseFloat($('normScale').value),
     alpha: parseFloat($('alpha').value),

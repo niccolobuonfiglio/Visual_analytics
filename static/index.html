@@ -94,14 +94,20 @@
               <button class="seg-btn active" data-weight="rank">rank</button>
               <button class="seg-btn" data-weight="distance">distance</button>
             </div>
+            <!-- Comment out Adaptive k -->
+            <!-- 
             <label class="check">
               <input type="checkbox" id="adaptive">
               <span>Adaptive k <span class="hint">by local density</span></span>
             </label>
+            -->
+            <!-- Comment out Geometric -->
+            <!-- 
             <label class="check">
               <input type="checkbox" id="geometric">
               <span>Geometric <span class="hint">ignore labels</span></span>
             </label>
+            -->
           </div>
 
           <div class="metric-panel" id="classicPanel" hidden>
@@ -225,7 +231,7 @@
               <span class="enc-dots" aria-hidden="true">
                 <i class="d1"></i><i class="d2"></i><i class="d3"></i><i class="d4"></i>
               </span>
-              <span class="enc-desc">total distortion &nbsp;|FP|&nbsp;+&nbsp;|FN|&nbsp;<span class="enc-note">— a big white point is badly distorted <em>both</em> ways; a small white point is genuinely faithful</span></span>
+              <span class="enc-desc">total distortion &nbsp;|FP|&nbsp;+&nbsp;|FN|&nbsp;<span class="enc-note">: a big white point is badly distorted <em>both</em> ways; a small white point is genuinely faithful</span></span>
             </div>
           </div>
 
