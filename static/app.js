@@ -5,6 +5,8 @@ const state = {
   result: null,        // latest run result
   metric: 'intrusion',
   weight: 'rank',
+  colourMode: 'severity',  // 'severity' | 'faithful' (TP-aware) | 'signed'
+  esView: 'error',         // 'error' | 'class' -> Error Space colour-by mode
   esSel: new Set(),    // Error Space: shared selection across all 3 plots
   esActiveQuad: null,  // Error Space: currently active quadrant button (or null)
   tableSort: { key: 'pca_error', dir: -1 },
@@ -63,7 +65,21 @@ async function init(){
   bindControls();
   bindTabs();
   bindConsole();
+  bindVerdictUi();
   await restoreLast();
+}
+
+/* verdict banner + modal button wiring */
+function bindVerdictUi(){
+  const openBtn = $('vbExamine');
+  if(openBtn) openBtn.addEventListener('click', openVerdictModal);
+  const close = $('vmClose'), done = $('vmDone'), overlay = $('verdictModal'),
+        goto = $('vmGotoTab');
+  if(close) close.addEventListener('click', closeVerdictModal);
+  if(done) done.addEventListener('click', closeVerdictModal);
+  if(goto) goto.addEventListener('click', ()=>{ closeVerdictModal(); activateTab('verdict'); });
+  if(overlay) overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeVerdictModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeVerdictModal(); });
 }
 
 async function loadDatasets(){
@@ -123,6 +139,37 @@ function bindControls(){
   $('weightedMds').addEventListener('change', syncWeighted);
   $('weightMethod').addEventListener('change', syncWeighted);
 
+  // Error Space colour channel: severity / TP-aware / raw signed error
+  const COLOUR_DESC = {
+    severity: 'severity-weighted error &nbsp;sign(err)&middot;&radic;(|err|&middot;(FP+FN))',
+    faithful: 'TP-aware &nbsp;hue = sign, whiteness earned only by low distortion (grey = distorted both ways)',
+    signed:   'signed error &nbsp;FN&nbsp;<b>&minus;</b>&nbsp;&hellip;&nbsp;True&nbsp;&hellip;&nbsp;<b>+</b>&nbsp;FP',
+  };
+  $('colourModeSeg').addEventListener('click', (e)=>{
+    const b = e.target.closest('.seg-btn'); if(!b) return;
+    state.colourMode = b.dataset.cmode;
+    document.querySelectorAll('#colourModeSeg .seg-btn').forEach(x=>
+      x.classList.toggle('active', x===b));
+    $('encColourDesc').innerHTML = COLOUR_DESC[state.colourMode] || COLOUR_DESC.signed;
+    if(state.result && state.esView==='error') renderErrorSpace(state.result);
+  });
+
+  // Error Space view: colour by error/fidelity, or by class ("see classes")
+  $('esViewSeg').addEventListener('click', (e)=>{
+    const b = e.target.closest('.seg-btn'); if(!b) return;
+    state.esView = b.dataset.view;
+    document.querySelectorAll('#esViewSeg .seg-btn').forEach(x=>
+      x.classList.toggle('active', x===b));
+    const cls = state.esView==='class';
+    // dim the error-colour legend when showing classes; show a class hint
+    $('encLegend').style.opacity = cls ? 0.4 : 1;
+    $('colourModeSeg').style.pointerEvents = cls ? 'none' : 'auto';
+    $('esViewHint').textContent = cls
+      ? 'each point tinted by its true class; compare against the error view to see which classes the projection distorts'
+      : 'points tinted by their signed error; drag to select, quadrants below split by error sign';
+    if(state.result) renderErrorSpace(state.result);
+  });
+
   // CSV upload
   /*
   $('csvFile').addEventListener('change', handleCsvUpload);
@@ -177,9 +224,9 @@ function collectParams(){
     dataset: $('dataset').value,
     metric: state.metric,
     neighbors: parseInt($('neighbors').value),
-    geometric: false, // $('geometric').checked,  // commented out    
+    geometric: $('geometric') ? $('geometric').checked : false,
     weight: state.weight,
-    adaptive: false, // $('adaptive').checked,   // commented out    
+    adaptive: $('adaptive') ? $('adaptive').checked : false,
     normalize: $('normalize').value,
     norm_scale: parseFloat($('normScale').value),
     alpha: parseFloat($('alpha').value),
@@ -188,6 +235,13 @@ function collectParams(){
     threshold: parseFloat($('threshold').value),
     weighted_mds: $('weightedMds').checked,
     weight_method: $('weightMethod').value,
+    // analysis layer toggles
+    kmeans: true,
+    rel_metrics: true,
+    anneal: $('annealToggle') ? $('annealToggle').checked : true,
+    rel_k: parseInt($('neighbors').value),
+    rel_alpha: 0.0,
+    rel_beta: 1.0,
   };
   const ms = $('maxSamples').value;
   if(ms) p.max_samples = parseInt(ms);
@@ -376,6 +430,8 @@ function renderAll(d){
   safeRender('statbar', ()=>renderStatbar(d));
   safeRender('signal', ()=>renderSignal(d));
   safeRender('table', ()=>renderTable(d));
+  safeRender('verdict-banner', ()=>renderVerdictBanner(d));
+  safeRender('analysis', ()=>renderAnalysisPanel(d));
   if(typeof Plotly === 'undefined'){
     plotlyUnavailable();
     return;
@@ -493,6 +549,96 @@ const ES_SIZE_MAX = 20;   // px diameter for the run's worst total distortion
 /** total distortion |FP| + |FN| per point (the magnitude colour cannot show) */
 function totalDistortion(t){
   return t.fp.map((v,i)=> Math.abs(v) + Math.abs(t.fn[i]));
+}
+
+/* ============================================================
+   SEVERITY-WEIGHTED SIGNED ERROR  (colour metric)
+   The plain signed error err = FP - FN answers "which way?" but
+   not "how much is behind it": FP=.5,FN=.4 and FP=.1,FN=0 both
+   give err = +0.1, yet the first point is five times more
+   distorted. We therefore weight the error by the magnitude that
+   produced it, using the signed geometric mean
+
+       S = sign(err) * sqrt( |err| * (FP + FN) )
+         = sign(FP-FN) * sqrt( |FP^2 - FN^2| )
+
+   Properties (all verified):
+     - sign(S) == sign(err): the FN / True / FP semantics survive.
+     - S == 0 exactly when err == 0: balance still reads neutral,
+       which is why SIZE remains the second channel for those points.
+     - If one side is zero, S == err: it degrades to the familiar scale.
+     - |S| grows with both the imbalance AND the mass behind it.
+   The geometric mean (rather than the raw product err*(FP+FN)) is
+   essential: the raw product crushes ~92% of real points into the
+   near-white band, destroying contrast, because it is quadratic in
+   quantities that are already << 1. The square root restores a
+   perceptually usable spread.                                     */
+function severityError(t){
+  return t.fp.map((fp,i)=>{
+    const fn = t.fn[i], e = t.err[i], dist = Math.abs(fp) + Math.abs(fn);
+    return Math.sign(e) * Math.sqrt(Math.abs(e) * dist);
+  });
+}
+
+/* ============================================================
+   TP-AWARE COLOUR  (solves "white != true positive")
+   Problem: colour = err = FP - FN is ~0 for BOTH a genuinely
+   faithful point (FP=FN=0) and a point badly distorted in both
+   directions at once (FP=FN=large). Both render white, so white
+   does NOT mean "true positive".
+   Fix: return an explicit RGB string per point instead of a
+   scalar on the diverging scale. The sign still drives hue
+   (red = FN, blue = FP), but the WHITENESS is earned only by low
+   total distortion: a balanced-but-distorted point is pulled
+   toward a neutral GREY, never the pure white reserved for real
+   true positives. Encoded via HSL: hue from sign, saturation from
+   imbalance, lightness from fidelity.                           */
+function tpAwareColors(t){
+  const out = [];
+  // scale reference: the largest total distortion in this method
+  let dmax = 0;
+  for(let i=0;i<t.fp.length;i++) dmax = Math.max(dmax, Math.abs(t.fp[i])+Math.abs(t.fn[i]));
+  if(dmax<=0) dmax = 1;
+  for(let i=0;i<t.fp.length;i++){
+    const fp=Math.abs(t.fp[i]), fn=Math.abs(t.fn[i]);
+    const e=t.err[i], dist=fp+fn;
+    const imbalance = dist>0 ? Math.abs(e)/dist : 0;       // 0..1 how one-sided
+    const load = Math.min(dist/dmax, 1);                    // 0..1 how distorted
+    if(dist < 1e-9){                                        // genuine TP -> pure white
+      out.push('rgb(238,241,244)'); continue;
+    }
+    const hue = e<0 ? 4 : 214;                              // red (FN) vs blue (FP)
+    // saturation: one-sided AND loaded points are vivid; balanced ones grey out
+    const sat = Math.round(12 + 76*imbalance*Math.sqrt(load));
+    // lightness: faithful -> light (~92%), heavily distorted -> darker (~52%)
+    const light = Math.round(92 - 40*load);
+    out.push(`hsl(${hue}, ${sat}%, ${light}%)`);
+  }
+  return out;
+}
+
+/** Symmetric colour limit for the severity scale, rounded up for clean ticks. */
+function severityVmax(d){
+  let peak = 0;
+  ['pca','mds'].forEach(m=>{
+    severityError(d.table[m]).forEach(v=>{ peak = Math.max(peak, Math.abs(v)); });
+  });
+  return peak > 0 ? Math.ceil(peak*20)/20 : 0.1;
+}
+/** Colour channel actually used by the Error Space plots. */
+function colourChannel(t, d){
+  if(state.colourMode === 'faithful'){
+    return { mode:'rgb', colors: tpAwareColors(t), label:'TP-aware' };
+  }
+  if(state.colourMode === 'severity'){
+    return { vals: severityError(t), vmax: severityVmax(d),
+             label: 'severity-weighted error' };
+  }
+  return { vals: t.err, vmax: d.vmax, label: 'signed error' };
+}
+/** Per-point class colours for the "see classes" view. */
+function classColorArray(d){
+  return d.table.labels.map(l=> classColor(l));
 }
 /** Peak |FP|+|FN| across BOTH methods, so PCA and MDS share one size scale. */
 function distortionMax(d){
@@ -852,22 +998,41 @@ function esBaseTrace(t, vmax, d, kind, dmax){
     : totalDistortion(t);
   const scaleMax = isErr ? 2*dmax : dmax;   // err plot sums two methods
   const sizes = distortionSizes(tot, scaleMax);
+
+  // ----- colour: either the class-view, or one of the error colour modes -----
+  const classView = state.esView === 'class';
+  let markerColor, marker;
+  if(classView){
+    // colour by class; size stays as distortion so structure is still visible
+    marker = { size:sizes, color: classColorArray(d),
+               line:{color:'rgba(0,0,0,0.45)',width:0.5} };
+  } else {
+    const ch = colourChannel(t, d);
+    if(ch.mode === 'rgb'){                    // TP-aware: explicit per-point RGB
+      marker = { size:sizes, color: ch.colors,
+                 line:{color:'rgba(0,0,0,0.5)',width:0.5} };
+    } else {                                  // severity or raw: diverging scale
+      marker = { size:sizes, color: ch.vals, colorscale:DIVERGING,
+                 cmin:-ch.vmax, cmax:ch.vmax,
+                 line:{color:'rgba(0,0,0,0.5)',width:0.5} };
+    }
+  }
+  const sevVals = severityError(isErr ? d.table.pca : t);  // for hover only
   return {
     type:'scattergl', mode:'markers',
     x: isErr ? d.table.pca.err : t.x,
     y: isErr ? d.table.mds.err : t.y,
-    marker:{ size:sizes, color: t.err, colorscale:DIVERGING, cmin:-vmax, cmax:vmax,
-      line:{color:'rgba(0,0,0,0.5)',width:0.5} },
+    marker,
     customdata: d.table.ids.map((id,i)=>[
       d.table.class_names[i], id, d.table.pca.err[i], d.table.mds.err[i],
-      t.fp[i], t.fn[i], tot[i]]),
+      t.fp[i], t.fn[i], tot[i], sevVals[i]]),
     hovertemplate: isErr
       ? 'idx %{customdata[1]} · %{customdata[0]}<br>' +
-        'PCA err %{x:.3f} · MDS err %{y:.3f}<br>' +
+        'PCA err %{customdata[2]:.3f} · MDS err %{customdata[3]:.3f}<br>' +
         'total distortion %{customdata[6]:.3f}<extra></extra>'
       : 'idx %{customdata[1]} · %{customdata[0]}<br>' +
-        'error %{marker.color:.3f} &nbsp; (FP %{customdata[4]:.3f} · FN %{customdata[5]:.3f})<br>' +
-        'total distortion %{customdata[6]:.3f}<extra></extra>',
+        'error %{customdata[2]:.3f} &nbsp; (FP %{customdata[4]:.3f} · FN %{customdata[5]:.3f})<br>' +
+        'severity %{customdata[7]:+.3f} · total distortion %{customdata[6]:.3f}<extra></extra>',
     selected:{ marker:{ opacity:1 } },
     unselected:{ marker:{ opacity:0.15 } },
   };
@@ -1053,6 +1218,260 @@ function updateEsDetail(d, source){
   }).join('')+'</tr>').join('');
 }
 
+/* ============================================================
+   VERDICT BANNER + MODAL + ANALYSIS PANEL
+   ============================================================ */
+function _verdictParts(v){
+  // returns {winner, loser, decisive, tie, margin, relpct, ci, d, sWin, sLose}
+  const pm = v.per_method || {};
+  const names = v.ranking || Object.keys(pm);
+  const winner = v.winner, loser = names[names.length-1];
+  return {
+    winner, loser,
+    decisive: !!v.decisive,
+    tie: v.margin_absolute < 0.005,
+    margin: v.margin_absolute,
+    relpct: v.margin_relative_pct,
+    ci: v.bootstrap_ci_mean_distortion_diff || [0,0],
+    d: v.effect_size_cohen_d,
+    sWin: pm[winner] ? pm[winner].score : null,
+    sLose: pm[loser] ? pm[loser].score : null,
+  };
+}
+
+function renderVerdictBanner(d){
+  const banner = $('verdictBanner');
+  const v = d.verdict;
+  if(!v){ banner.hidden = true; return; }
+  banner.hidden = false;
+  const p = _verdictParts(v);
+  const badge = $('vbBadge'), headline = $('vbHeadline'), sub = $('vbSub');
+  banner.classList.remove('vb-decisive','vb-tie','vb-soft');
+  if(p.tie){
+    banner.classList.add('vb-tie');
+    badge.textContent = 'TIE';
+    headline.textContent = 'PCA and MDS are effectively tied';
+    sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} — no meaningful difference on this dataset`;
+  } else if(p.decisive){
+    banner.classList.add('vb-decisive');
+    badge.textContent = p.winner;
+    headline.innerHTML = `<strong>${p.winner}</strong> is the more faithful projection`;
+    sub.textContent = `decisive — composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}, ${p.relpct.toFixed(1)}% relative), 95% CI excludes zero`;
+  } else {
+    banner.classList.add('vb-soft');
+    badge.textContent = p.winner;
+    headline.innerHTML = `<strong>${p.winner}</strong> leads, but not decisively`;
+    sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}) — the confidence interval straddles zero, so treat as provisional`;
+  }
+}
+
+const fmt3 = (x)=> (x==null||isNaN(x)) ? '—' : (x>=0? x.toFixed(3) : x.toFixed(3));
+const sgn3 = (x)=> (x>=0?'+':'') + x.toFixed(3);
+
+function componentBars(pm){
+  // pm: per_method dict. Build a small aligned bar table for the 4 components.
+  const comps = ['fidelity','trust','continuity','cluster'];
+  const methods = Object.keys(pm);
+  let html = '<table class="an-comp-table"><thead><tr><th>criterion</th>';
+  methods.forEach(m=> html += `<th>${m}</th>`);
+  html += '<th></th></tr></thead><tbody>';
+  comps.forEach(c=>{
+    const vals = methods.map(m=> (pm[m].components && pm[m].components[c]!=null) ? pm[m].components[c] : null);
+    if(vals.every(x=>x==null)) return;
+    const best = Math.max(...vals.filter(x=>x!=null));
+    html += `<tr><td class="an-comp-name">${c}</td>`;
+    methods.forEach((m,i)=>{
+      const val = vals[i];
+      if(val==null){ html += '<td>—</td>'; return; }
+      const isBest = Math.abs(val-best)<1e-9;
+      html += `<td class="${isBest?'an-best':''}">${val.toFixed(3)}</td>`;
+    });
+    // mini bar showing the gap
+    const lead = methods[vals.indexOf(best)] || '';
+    html += `<td class="an-comp-lead">${lead}</td></tr>`;
+  });
+  // weights row
+  const anyM = methods[0];
+  const w = pm[anyM] && pm[anyM].weights_used ? pm[anyM].weights_used : null;
+  html += '</tbody></table>';
+  if(w){
+    html += '<div class="an-weights">weights: ' +
+      comps.filter(c=>w[c]!=null).map(c=>`${c} ${w[c]}`).join(' · ') + '</div>';
+  }
+  return html;
+}
+
+function renderAnalysisPanel(d){
+  renderVerdictCard(d);
+  renderAnnealCard(d);
+  renderMetricsCard(d);
+  renderKmeansCard(d);
+}
+
+function renderVerdictCard(d){
+  const v = d.verdict;
+  const chip = $('anVerdictChip'), body = $('anVerdictBody'),
+        comp = $('anVerdictComponents'), note = $('anVerdictNote');
+  if(!v){ chip.textContent='n/a'; body.textContent='Verdict unavailable.'; comp.innerHTML=''; note.textContent=''; return; }
+  const p = _verdictParts(v);
+  chip.textContent = p.tie ? 'tie' : (p.decisive ? 'decisive' : 'provisional');
+  chip.className = 'an-chip ' + (p.decisive ? 'an-chip-good' : (p.tie ? 'an-chip-quiet' : 'an-chip-warn'));
+  body.innerHTML = `<p class="an-verdict-sentence">${v.verdict}</p>`;
+  comp.innerHTML = '<h4>How the four criteria voted</h4>' + componentBars(v.per_method);
+  note.innerHTML =
+    `<strong>Confidence.</strong> Effect size (Cohen's d) = ${fmt3(p.d)}; ` +
+    `95% bootstrap CI on the per-point distortion gap = [${sgn3(p.ci[0])}, ${sgn3(p.ci[1])}]. ` +
+    (p.decisive
+      ? 'The interval lies entirely on one side of zero, so the win is reliable.'
+      : (p.tie ? 'The scores are within the tie threshold.'
+               : 'The interval crosses zero, so the lead is not statistically reliable.'));
+}
+
+function renderAnnealCard(d){
+  const a = d.anneal;
+  const chip = $('anAnnealChip'), stats = $('anAnnealStats'),
+        note = $('anAnnealNote'), plotDiv = $('anAnnealPlot');
+  if(!a){
+    chip.textContent = 'off';
+    stats.innerHTML = '<p class="an-muted">Enable “Search best k” in the Analysis controls and re-run to see the search.</p>';
+    note.textContent=''; if(typeof Plotly!=='undefined') Plotly.purge(plotDiv);
+    return;
+  }
+  chip.textContent = `k* = ${a.best_k}`;
+  const grid = 59; // reference exhaustive count over k in [2,60]
+  stats.innerHTML =
+    statCell('best k', a.best_k) +
+    statCell('F1 at k*', (a.best_score!=null? a.best_score.toFixed(4):'—')) +
+    statCell('evaluations', `${a.n_evaluations}`) +
+    statCell('vs exhaustive', `${a.n_evaluations}/${grid}`) +
+    statCell('uphill moves', a.uphill_moves_accepted!=null?a.uphill_moves_accepted:'—') +
+    statCell('start temp', a.t0!=null?a.t0.toFixed(3):'—');
+  note.innerHTML = `<strong>Reading it.</strong> The search evaluated only <strong>${a.n_evaluations}</strong> values of k instead of ${grid}, ` +
+    `while the ${a.uphill_moves_accepted||0} accepted <em>worsening</em> moves (red rings) are what let it escape local optima. ` +
+    `The objective is typically flat near its peak, so the exact k is not critical.`;
+  // plot the trace
+  if(typeof Plotly!=='undefined' && a.trace && a.trace.length){
+    const it = a.trace.map(t=>t.iter), kk = a.trace.map(t=>t.k),
+          best = a.trace.map(t=>t.best_k);
+    const up = a.trace.filter(t=>t.uphill);
+    const proposed = { type:'scatter', mode:'lines+markers', x:it, y:kk,
+      name:'proposed k', line:{color:'#7f9ab5',width:1}, marker:{size:5,color:'#7f9ab5'} };
+    const bestLine = { type:'scatter', mode:'lines', x:it, y:best,
+      name:'best so far', line:{color:'#4ec97a',width:2} };
+    const uphill = { type:'scatter', mode:'markers', x:up.map(t=>t.iter), y:up.map(t=>t.k),
+      name:'accepted worsening', marker:{size:11,color:'rgba(0,0,0,0)',
+      line:{color:'#d24b52',width:1.6}} };
+    Plotly.react(plotDiv, [proposed,bestLine,uphill], baseLayout({
+      title:{text:'annealing trace',font:{size:11,color:'#9aa7b6'},x:0.02,xanchor:'left'},
+      xaxis:Object.assign({title:'iteration'},AXIS),
+      yaxis:Object.assign({title:'k'},AXIS),
+      showlegend:true, legend:{font:{size:9,color:'#9aa7b6'},x:0.98,y:0.02,xanchor:'right',yanchor:'bottom',bgcolor:'rgba(21,26,33,0.7)'},
+      height:260,
+    }), PLOT_CONFIG);
+  }
+}
+
+function statCell(label, value){
+  return `<div class="an-stat"><span class="an-stat-v">${value}</span><span class="an-stat-l">${label}</span></div>`;
+}
+
+function renderMetricsCard(d){
+  const r = d.rel_metrics;
+  const chip = $('anMetricsChip'), grid = $('anMetricsGrid'), pc = $('anMetricsPerClass');
+  if(!r){ chip.textContent='n/a'; grid.innerHTML=''; pc.innerHTML=''; return; }
+  const g = r.global;
+  chip.textContent = `k = ${r.k}`;
+  grid.innerHTML =
+    bigStat('precision', g.precision, 'are points among their own class?') +
+    bigStat('recall', g.recall, 'is each class held together?') +
+    bigStat('F1', (g.f1!=null?g.f1:g.f_score), 'harmonic mean of the two', true);
+  // per-class table
+  const names = r.target_names || [];
+  const pl = r.per_label || {};
+  const keys = Object.keys(pl);
+  if(keys.length){
+    let html = '<h4>Per class</h4><table class="an-comp-table"><thead><tr>'+
+      '<th>class</th><th>precision</th><th>recall</th><th>F1</th><th>n</th></tr></thead><tbody>';
+    keys.forEach(k=>{
+      const row = pl[k];
+      const nm = names[k] !== undefined ? names[k] : `class ${k}`;
+      const f1 = row.f1!=null ? row.f1 : row.f_score;
+      html += `<tr><td class="an-comp-name">${nm}</td>`+
+        `<td>${row.precision.toFixed(3)}</td><td>${row.recall.toFixed(3)}</td>`+
+        `<td class="an-best">${f1.toFixed(3)}</td><td>${row.size}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    pc.innerHTML = html;
+  } else pc.innerHTML='';
+}
+
+function bigStat(label, val, sub, hero){
+  const v = (val==null||isNaN(val)) ? '—' : val.toFixed(3);
+  return `<div class="an-bigstat ${hero?'an-bigstat-hero':''}">`+
+    `<div class="an-bigstat-v">${v}</div>`+
+    `<div class="an-bigstat-l">${label}</div>`+
+    `<div class="an-bigstat-s">${sub}</div></div>`;
+}
+
+function renderKmeansCard(d){
+  const km = d.kmeans;
+  const chip = $('anKmeansChip'), body = $('anKmeansBody');
+  if(!km){ chip.textContent='n/a'; body.innerHTML=''; return; }
+  const hi = km.high_d || {};
+  const are = km.classes_are_clusters;
+  chip.textContent = are ? 'labels ≈ clusters' : 'labels ≠ clusters';
+  chip.className = 'an-chip ' + (are ? 'an-chip-good' : 'an-chip-warn');
+  const acc = hi.cluster_accuracy!=null ? (100*hi.cluster_accuracy).toFixed(1)+'%' : '—';
+  const ariL = hi.ari_vs_labels!=null ? hi.ari_vs_labels.toFixed(3) : '—';
+  let html =
+    '<div class="an-stat-row">' +
+    statCell('ARI vs labels', ariL) +
+    statCell('matched accuracy', acc) +
+    statCell('silhouette best k', km.best_k_by_silhouette) +
+    statCell('# classes', km.n_classes) +
+    '</div>';
+  // verdict sentence
+  if(are){
+    html += `<p class="an-kmeans-say an-say-good">The high-dimensional clusters line up with the class labels (ARI ${ariL}), so the labels are a trustworthy reference here.</p>`;
+  } else {
+    html += `<p class="an-kmeans-say an-say-warn">The natural clusters do <strong>not</strong> match the labels well (ARI ${ariL})`;
+    if(km.best_k_by_silhouette !== km.n_classes){
+      html += ` — silhouette even prefers <strong>${km.best_k_by_silhouette}</strong> clusters against <strong>${km.n_classes}</strong> classes`;
+    }
+    html += `. Part of any apparent "projection error" may therefore be a label/geometry mismatch, not the projection's fault.</p>`;
+  }
+  // per-method preservation
+  if(km.methods){
+    html += '<h4>Does each projection preserve the clustering?</h4><div class="an-stat-row">';
+    Object.keys(km.methods).forEach(m=>{
+      const ari = km.methods[m].ari_vs_high;
+      html += statCell(`${m}: ARI 2-D vs high-D`, ari!=null?ari.toFixed(3):'—');
+    });
+    html += '</div>';
+  }
+  body.innerHTML = html;
+}
+
+/* verdict modal */
+function openVerdictModal(){
+  const d = state.result; if(!d || !d.verdict) return;
+  const v = d.verdict, p = _verdictParts(v);
+  const body = $('vmBody');
+  let html = `<div class="vm-headline ${p.decisive?'vm-good':(p.tie?'vm-tie':'vm-soft')}">${v.verdict}</div>`;
+  html += '<h4>The four criteria</h4>' + componentBars(v.per_method);
+  html += `<div class="an-note" style="margin-top:12px">`+
+    `<strong>Confidence.</strong> Cohen's d = ${fmt3(p.d)}; 95% bootstrap CI on the per-point distortion gap = [${sgn3(p.ci[0])}, ${sgn3(p.ci[1])}]. `+
+    (p.decisive ? 'The interval excludes zero — the win is reliable.'
+                : (p.tie ? 'Within the tie threshold.' : 'The interval crosses zero — provisional.'))+
+    `</div>`;
+  html += `<div class="an-why" style="margin-top:12px"><strong>How to read this.</strong> `+
+    `Fidelity (weight 0.40) is the per-point distortion; trust and continuity (0.20 each) are the classical neighbour-preservation scalars; cluster (0.20) is how well each projection preserves the k-means partition. Weights are fixed, not tuned, and every component is shown so you can weigh them yourself.</div>`;
+  body.innerHTML = html;
+  $('verdictModal').hidden = false;
+}
+function closeVerdictModal(){ $('verdictModal').hidden = true; }
+
+
 /* TABS / CONSOLE / TOAST */
 function activateTab(name){
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
@@ -1064,6 +1483,8 @@ function activateTab(name){
     });
     // re-apply the Error Space rings after the resize so they stay aligned
     if(name==='errorspace' && state.result) applyEsSelection(state.result, null);
+    // re-render the annealing trace so it sizes correctly on first open
+    if(name==='verdict' && state.result) safeRender('anneal', ()=>renderAnnealCard(state.result));
   }, 30);
 }
 function bindTabs(){

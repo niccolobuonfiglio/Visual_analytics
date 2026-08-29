@@ -26,6 +26,8 @@ from error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
                         build_projections, compute_errors,
                         compute_feature_weights)
 from utils import describe, build_fname_tag, nice_vmax, normalize_errors
+from analysis import (build_knn_graph, precision_recall_fscore, kmeans_analysis,
+                      optimise_relationship_k, compare_methods)
 
 APP_DIR = Path(__file__).parent
 STORE = APP_DIR / "runs_store.json"          
@@ -75,6 +77,13 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     weight_method = params.get("weight_method", "mutual_info")
     custom_weights = params.get("custom_weights") or None
     weight_info = None
+    # analysis layer (paper-grounded) toggles
+    do_kmeans = bool(params.get("kmeans", True))
+    do_relmetrics = bool(params.get("rel_metrics", True))
+    do_anneal = bool(params.get("anneal", False))
+    rel_k = int(params.get("rel_k", 15))
+    rel_alpha = float(params.get("rel_alpha", 0.0))
+    rel_beta = float(params.get("rel_beta", 1.0))
 
     with redirect_stdout(buf):
         X, y, target_names, name = load_dataset(dataset, csv_path, label_col)
@@ -129,6 +138,49 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
             vmax = 1.0
         else:
             vmax = nice_vmax(pca_err, mds_err)
+
+        # ---- analysis layer: k-means, relationship metrics, SA, verdict ----
+        kmeans_res = rel_res = anneal_res = verdict_res = None
+        try:
+            if do_kmeans:
+                kmeans_res = kmeans_analysis(X_high, proj, y)
+                print(f"\n[k-means] ARI(high-D clusters vs labels) = "
+                      f"{kmeans_res['high_d']['ari_vs_labels']:.3f} -> "
+                      f"classes {'ARE' if kmeans_res['classes_are_clusters'] else 'are NOT'} clusters")
+                for _m, _v in kmeans_res["methods"].items():
+                    print(f"          {_m}: ARI(2-D vs high-D) = {_v['ari_vs_high']:.3f}")
+        except Exception as ke:
+            print(f"[k-means] skipped ({ke})")
+        try:
+            if do_relmetrics:
+                _adj, _W = build_knn_graph(X_high, k=rel_k)
+                _pr = precision_recall_fscore(_adj, _W, y, alpha=rel_alpha, beta=rel_beta)
+                rel_res = {"global": _pr["global"], "per_label": _pr["per_label"],
+                           "k": rel_k, "alpha": rel_alpha, "beta": rel_beta,
+                           "target_names": target_names}
+                g = _pr["global"]
+                print(f"\n[cluster-structure metrics] k={rel_k} alpha={rel_alpha} -> "
+                      f"precision {g['precision']:.3f}  recall {g['recall']:.3f}  "
+                      f"F1 {g['f1']:.3f}")
+        except Exception as re_:
+            print(f"[cluster-structure metrics] skipped ({re_})")
+        try:
+            if do_anneal:
+                anneal_res = optimise_relationship_k(
+                    X_high, y, k_lo=2, k_hi=min(60, max(3, len(y) // 3)),
+                    alpha=rel_alpha, beta=rel_beta, n_iter=30)
+                print(f"\n[simulated annealing] best k={anneal_res['best_k']} "
+                      f"f-score={anneal_res['best_score']:.4f} "
+                      f"({anneal_res['n_evaluations']} evaluations, "
+                      f"T0={anneal_res['t0']:.4f})")
+        except Exception as ae:
+            print(f"[simulated annealing] skipped ({ae})")
+        try:
+            verdict_res = compare_methods(X_high, proj, errs, fps, fns, y,
+                                          k=neighbors, kmeans=kmeans_res)
+            print(f"\n[verdict] {verdict_res['verdict']}")
+        except Exception as ve:
+            print(f"[verdict] skipped ({ve})")
 
         # untrustworthy report 
         report_rows = _report_untrustworthy(
@@ -194,6 +246,10 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         "summary": summary,
         "centroids": centroids,
         "weight_info": weight_info,
+        "kmeans": kmeans_res,
+        "rel_metrics": rel_res,
+        "anneal": anneal_res,
+        "verdict": verdict_res,
         "console": console,
         "metric": metric,
         "timestamp": time.time(),
