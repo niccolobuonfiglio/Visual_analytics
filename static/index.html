@@ -99,10 +99,15 @@
               <span>Adaptive k <span class="hint">per-point, by local density</span></span>
             </label>
             <label class="check">
-              <input type="checkbox" id="geometric">
-              <span>Geometric <span class="hint">ignore labels; pure fidelity</span></span>
+              <input type="checkbox" id="classAware">
+              <span>Class-aware <span class="hint">use labels; measure class-structure fidelity</span></span>
             </label>
           </div>
+          <p class="ctl-note" style="margin-top:2px">By default the fidelity metric is
+            <strong>geometric</strong> (label-free): it measures whether the projection
+            preserved the data&rsquo;s neighbourhoods, with no assumption that the labels
+            are correct. Turn on <em>class-aware</em> only when you trust the labels and
+            want to measure <em>class</em>-structure fidelity instead.</p>
 
           <div class="metric-panel" id="classicPanel" hidden>
             <label class="field">
@@ -149,6 +154,16 @@
             <input type="checkbox" id="annealToggle" checked>
             <span>Search best k <span class="hint">simulated annealing</span></span>
           </label>
+          <div class="field">
+            <label class="field-label" for="recallAlpha">Recall strictness &alpha;
+              <span class="hint" id="recallAlphaEcho">0.50</span></label>
+            <input type="range" id="recallAlpha" min="0" max="1" step="0.05" value="0.5">
+            <p class="ctl-note" style="margin-top:4px">
+              &alpha; = 0: a class only needs to stay <em>connected</em> (recall is then
+              almost always 1.0, so F1 is driven by precision alone). &alpha; = 1: each
+              class must form a full <em>clique</em>, which makes recall &mdash; and F1
+              &mdash; discriminating. Default 0.5 keeps recall informative.</p>
+          </div>
           <p class="ctl-note">The PCA-vs-MDS verdict, precision/recall/F1 and the k-means ground-truth check always run and appear in the <strong>Verdict &amp; Analysis</strong> tab.</p>
         </section>
 
@@ -199,6 +214,18 @@
           <button class="vb-examine" id="vbExamine">Examine verdict</button>
         </div>
 
+        <!-- DATA & LABELS BANNER: do the labels describe the data's structure? -->
+        <div class="verdict-banner labels-banner" id="labelsBanner" hidden>
+          <div class="vb-main">
+            <div class="vb-badge" id="lbBadge">—</div>
+            <div class="vb-text">
+              <div class="vb-headline" id="lbHeadline">Awaiting analysis</div>
+              <div class="vb-sub" id="lbSub"></div>
+            </div>
+          </div>
+          <button class="vb-examine" id="lbExamine">See k-means</button>
+        </div>
+
         <nav class="tabs" id="tabs">
           <button class="tab active" data-tab="errorspace">Error Space</button>
           <button class="tab" data-tab="verdict">Verdict &amp; Analysis</button>
@@ -233,6 +260,11 @@
               <span class="es-quad-desc">PCA&nbsp;&lt;0 | MDS&nbsp;&gt;0</span>
               <span class="es-quad-count" data-count="pcaFNmdsFP">0</span>
             </button>
+            <button class="es-quad es-quad-nearzero" data-quad="nearZero">
+              <span class="es-quad-key">Near-zero</span>
+              <span class="es-quad-desc">|error|&nbsp;&asymp;&nbsp;0 · check size</span>
+              <span class="es-quad-count" data-count="nearZero">0</span>
+            </button>
             <button class="ghost-btn ghost-btn-sm es-clear" id="esClear">Clear selection</button>
           </div>
 
@@ -266,6 +298,19 @@
                 <i class="d1"></i><i class="d2"></i><i class="d3"></i><i class="d4"></i>
               </span>
               <span class="enc-desc" id="encSizeDesc">total distortion &nbsp;|FP|&nbsp;+&nbsp;|FN|&nbsp;<span class="enc-note">: a big white point is badly distorted <em>both</em> ways; a small white point is genuinely faithful</span></span>
+            </div>
+          </div>
+
+          <!-- WEIGHTED-MDS COMPARISON: shown only when weighted MDS is active -->
+          <div class="wmds-compare" id="wmdsCompare" hidden>
+            <div class="wmds-head">
+              <span class="wmds-title">Weighted MDS &mdash; class separation</span>
+              <span class="wmds-delta" id="wmdsDelta">&mdash;</span>
+            </div>
+            <p class="wmds-note" id="wmdsNote"></p>
+            <div class="es-grid">
+              <div class="plot es-plot" id="wmdsPlain"></div>
+              <div class="plot es-plot" id="wmdsWeighted"></div>
             </div>
           </div>
 

@@ -22,7 +22,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from sklearn.decomposition import PCA
 from sklearn.metrics import pairwise_distances
 
-from error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
+from error_core import (SKLEARN_LOADERS, DATASET_NAMES, load_dataset, maybe_subsample,
                         build_projections, compute_errors,
                         compute_feature_weights)
 from utils import describe, build_fname_tag, nice_vmax, normalize_errors
@@ -62,7 +62,16 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     label_col = params.get("label_col") or None
     metric = params.get("metric", "intrusion")
     neighbors = int(params.get("neighbors", 10))
-    geometric = bool(params.get("geometric", False))
+    # Fidelity metric is GEOMETRIC (label-free) by default. Class-awareness is
+    # an explicit opt-in: it restricts FP to cross-class intruders and FN to
+    # same-class extrusions, i.e. it measures class-structure fidelity instead
+    # of pure neighbourhood fidelity. Accept the new 'class_aware' flag; fall
+    # back to the legacy 'geometric' flag for older payloads.
+    if "class_aware" in params:
+        class_aware = bool(params.get("class_aware"))
+    else:
+        class_aware = not bool(params.get("geometric", False)) if "geometric" in params else False
+    geometric = not class_aware
     weight = params.get("weight", "rank")
     adaptive = bool(params.get("adaptive", False))
     normalize = params.get("normalize", "none")
@@ -82,7 +91,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     do_relmetrics = bool(params.get("rel_metrics", True))
     do_anneal = bool(params.get("anneal", False))
     rel_k = int(params.get("rel_k", 15))
-    rel_alpha = float(params.get("rel_alpha", 0.0))
+    rel_alpha = float(params.get("rel_alpha", 0.5))
     rel_beta = float(params.get("rel_beta", 1.0))
 
     with redirect_stdout(buf):
@@ -118,7 +127,31 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         proj, X_high = build_projections(
             X, standardize=standardize, weighted_mds=weighted_mds,
             feature_weights=feature_weights)
-        class_aware = not geometric
+
+        # When weighted MDS is active, also compute the PLAIN MDS layout so the
+        # UI can show both side by side, and quantify how much class separation
+        # changed (silhouette of the labels in each 2-D layout).
+        mds_compare = None
+        if weighted_mds and feature_weights is not None:
+            try:
+                plain_proj, _ = build_projections(
+                    X, standardize=standardize, weighted_mds=False)
+                from sklearn.metrics import silhouette_score as _sil
+                n_lab = len(np.unique(y))
+                sil_plain = float(_sil(plain_proj["MDS"], y)) if n_lab > 1 else 0.0
+                sil_weight = float(_sil(proj["MDS"], y)) if n_lab > 1 else 0.0
+                mds_compare = {
+                    "plain": {"x": plain_proj["MDS"][:, 0].tolist(),
+                              "y": plain_proj["MDS"][:, 1].tolist()},
+                    "silhouette_plain": round(sil_plain, 4),
+                    "silhouette_weighted": round(sil_weight, 4),
+                    "delta": round(sil_weight - sil_plain, 4),
+                }
+                print(f"[weighted MDS] class silhouette: plain={sil_plain:.3f} "
+                      f"-> weighted={sil_weight:.3f} (delta {sil_weight-sil_plain:+.3f})")
+            except Exception as ce:
+                print(f"[weighted MDS] could not build comparison ({ce})")
+                mds_compare = None
 
         errs, fps, fns = compute_errors(
             proj, X_high, y, metric=metric, k=neighbors,
@@ -246,6 +279,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         "summary": summary,
         "centroids": centroids,
         "weight_info": weight_info,
+        "mds_compare": mds_compare,
         "kmeans": kmeans_res,
         "rel_metrics": rel_res,
         "anneal": anneal_res,
@@ -371,7 +405,7 @@ def index():
 
 @app.route("/api/datasets")
 def datasets():
-    return jsonify({"datasets": list(SKLEARN_LOADERS)})
+    return jsonify({"datasets": DATASET_NAMES})
 
 
 @app.route("/api/run", methods=["POST"])

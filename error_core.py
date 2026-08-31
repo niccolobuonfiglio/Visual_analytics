@@ -53,6 +53,44 @@ SKLEARN_LOADERS = {
     "digits": skds.load_digits,
 }
 
+# Synthetic datasets, each built to expose a DIFFERENT failure mode the real
+# datasets above cannot show. Fixed seed so runs are reproducible. Each factory
+# returns (X, y, target_names) like the sklearn loaders' relevant fields.
+def _make_noisy():
+    """Many irrelevant features: only 5 of 50 carry signal. Tests whether the
+    metric can see structure buried in noise (and motivates weighted MDS)."""
+    X, y = skds.make_classification(
+        n_samples=300, n_features=50, n_informative=5, n_redundant=5,
+        n_repeated=0, n_classes=3, n_clusters_per_class=1, class_sep=1.0,
+        flip_y=0.01, random_state=RANDOM_STATE)
+    return X, y, ["class 0", "class 1", "class 2"]
+
+def _make_nonconvex():
+    """Two concentric rings: perfectly separable but NOT by centroids, so
+    k-means fails on data whose labels are a perfect (non-convex) clustering."""
+    X, y = skds.make_circles(n_samples=300, noise=0.05, factor=0.5,
+                             random_state=RANDOM_STATE)
+    return X, y, ["outer ring", "inner ring"]
+
+def _make_mislabeled():
+    """Real geometric structure (6 blobs) but labels assigned at RANDOM to 3
+    classes, so the labels carry no structure at all -- the extreme
+    labels-are-not-clusters case."""
+    X, _ = skds.make_blobs(n_samples=300, centers=6, n_features=10,
+                           cluster_std=1.5, random_state=RANDOM_STATE)
+    rng = np.random.RandomState(0)
+    y = rng.randint(0, 3, size=X.shape[0])
+    return X, y, ["label A", "label B", "label C"]
+
+SYNTHETIC_LOADERS = {
+    "synthetic_noisy": _make_noisy,
+    "synthetic_circles": _make_nonconvex,
+    "synthetic_mislabeled": _make_mislabeled,
+}
+
+# Public registry of every selectable dataset name (real + synthetic).
+DATASET_NAMES = list(SKLEARN_LOADERS) + list(SYNTHETIC_LOADERS)
+
 
 def load_dataset(name: str = "wine", csv_path: Optional[str] = None,
                  label_col: Optional[str] = None
@@ -71,9 +109,13 @@ def load_dataset(name: str = "wine", csv_path: Optional[str] = None,
                .to_numpy(dtype=float))
         return X, y, [str(c) for c in cats.categories], Path(csv_path).stem
 
+    if name in SYNTHETIC_LOADERS:
+        X, y, target_names = SYNTHETIC_LOADERS[name]()
+        return X, y, target_names, name
+
     if name not in SKLEARN_LOADERS:
         raise ValueError(f"Unknown dataset '{name}'. "
-                         f"Choices: {list(SKLEARN_LOADERS)} (or use a CSV).")
+                         f"Choices: {DATASET_NAMES} (or use a CSV).")
     data = SKLEARN_LOADERS[name]()
     return data.data, data.target, [str(t) for t in data.target_names], name
 

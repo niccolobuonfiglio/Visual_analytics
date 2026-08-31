@@ -80,6 +80,8 @@ function bindVerdictUi(){
   if(goto) goto.addEventListener('click', ()=>{ closeVerdictModal(); activateTab('verdict'); });
   if(overlay) overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeVerdictModal(); });
   document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeVerdictModal(); });
+  const lbExamine = $('lbExamine');
+  if(lbExamine) lbExamine.addEventListener('click', ()=>{ activateTab('verdict'); const c=$('anKmeansCard'); if(c) c.scrollIntoView({behavior:'smooth',block:'center'}); });
 }
 
 async function loadDatasets(){
@@ -107,6 +109,7 @@ function bindControls(){
   echo('beta','betaEcho',(v)=>parseFloat(v).toFixed(1));
   echo('normScale','normScaleEcho',(v)=>parseFloat(v).toFixed(1));
   echo('threshold','threshEcho',(v)=>parseFloat(v).toFixed(2));
+  if($('recallAlpha')) echo('recallAlpha','recallAlphaEcho',(v)=>parseFloat(v).toFixed(2));
 
   // metric segmented control
   $('metricSeg').addEventListener('click', (e)=>{
@@ -224,7 +227,7 @@ function collectParams(){
     dataset: $('dataset').value,
     metric: state.metric,
     neighbors: parseInt($('neighbors').value),
-    geometric: $('geometric') ? $('geometric').checked : false,
+    class_aware: $('classAware') ? $('classAware').checked : false,
     weight: state.weight,
     adaptive: $('adaptive') ? $('adaptive').checked : false,
     normalize: $('normalize').value,
@@ -240,7 +243,7 @@ function collectParams(){
     rel_metrics: true,
     anneal: $('annealToggle') ? $('annealToggle').checked : true,
     rel_k: parseInt($('neighbors').value),
-    rel_alpha: 0.0,
+    rel_alpha: $('recallAlpha') ? parseFloat($('recallAlpha').value) : 0.5,
     rel_beta: 1.0,
   };
   const ms = $('maxSamples').value;
@@ -400,7 +403,7 @@ function applyParamsToForm(p){
   setV('normScale',p.norm_scale); $('normScaleEcho').textContent=(p.norm_scale??3).toFixed?.(1)??p.norm_scale;
   $('normScaleField').hidden = !(p.normalize==='tanh'||p.normalize==='sigmoid');
   setV('threshold',p.threshold); $('threshEcho').textContent=(p.threshold??0.5).toFixed?.(2)??p.threshold;
-  $('geometric').checked = !!p.geometric;
+  if($('classAware')) $('classAware').checked = !!p.class_aware;
   $('adaptive').checked = !!p.adaptive;
   $('noStandardize').checked = !!p.no_standardize;
   if(p.max_samples) $('maxSamples').value = p.max_samples;
@@ -431,6 +434,7 @@ function renderAll(d){
   safeRender('signal', ()=>renderSignal(d));
   safeRender('table', ()=>renderTable(d));
   safeRender('verdict-banner', ()=>renderVerdictBanner(d));
+  safeRender('labels-banner', ()=>renderLabelsBanner(d));
   safeRender('analysis', ()=>renderAnalysisPanel(d));
   if(typeof Plotly === 'undefined'){
     plotlyUnavailable();
@@ -978,6 +982,15 @@ function renderTable(d){
 */
 
 // which quadrant each point falls in, by PCA/MDS error sign
+// Near-zero threshold: a point whose combined error magnitude is within this
+// fraction of vmax is treated as "close enough to zero" that its quadrant is
+// noise. CAVEAT: near-zero net error does NOT mean faithful -- a balanced-severe
+// point (large FP and large FN that cancel) also lands here; marker SIZE (total
+// distortion) is what separates the genuinely faithful from the balanced-severe.
+const ES_NEARZERO_FRAC = 0.15;
+function esNearZeroTau(d){ return ES_NEARZERO_FRAC * (d ? d.vmax : 1); }
+function esIsNearZero(pe, me, tau){ return Math.hypot(pe, me) < tau; }
+
 const ES_QUADS = {
   bothFP:     (pe,me)=> pe>0 && me>0,
   bothFN:     (pe,me)=> pe<0 && me<0,
@@ -1061,6 +1074,12 @@ function renderErrorSpace(d){
       { type:'line', x0:-vmax, x1:vmax, y0:0, y1:0, line:{color:'#33404f',width:1} },
       { type:'line', x0:-vmax, x1:vmax, y0:-vmax, y1:vmax,
         line:{color:'#2a3542',width:1,dash:'dot'} },
+      // near-zero "faithful / balanced" zone: points inside have ~0 net error
+      { type:'circle', xref:'x', yref:'y',
+        x0:-esNearZeroTau(d), x1:esNearZeroTau(d),
+        y0:-esNearZeroTau(d), y1:esNearZeroTau(d),
+        line:{color:'#4a5a6a',width:1,dash:'dot'},
+        fillcolor:'rgba(120,140,160,0.06)' },
     ],
     annotations:[
       quadLabel(-vmax*0.92,-vmax*0.92,'both FN','left','bottom'),
@@ -1081,7 +1100,42 @@ function renderErrorSpace(d){
   bindEsPlots();
   bindEsQuadrants();
   updateEsQuadCounts(d);
+  renderWmdsCompare(d);
   applyEsSelection(d, null);   // reflect any carried-over selection
+}
+
+/* Weighted-MDS comparison: plain vs weighted MDS layouts side by side, coloured
+   by class, with the silhouette separation change quantified. Only shown when
+   the run used weighted MDS. */
+function renderWmdsCompare(d){
+  const box = $('wmdsCompare');
+  const mc = d.mds_compare;
+  if(!mc){ if(box) box.hidden = true; if(typeof Plotly!=='undefined'){ ['wmdsPlain','wmdsWeighted'].forEach(id=>{ const el=$(id); if(el&&el.data) Plotly.purge(el); }); } return; }
+  box.hidden = false;
+  const dlt = mc.delta;
+  const deltaEl = $('wmdsDelta');
+  const better = dlt > 0.005, worse = dlt < -0.005;
+  deltaEl.textContent = `silhouette ${mc.silhouette_plain.toFixed(3)} → ${mc.silhouette_weighted.toFixed(3)}  (${dlt>=0?'+':''}${dlt.toFixed(3)})`;
+  deltaEl.className = 'wmds-delta ' + (better?'wmds-up':(worse?'wmds-down':'wmds-flat'));
+  $('wmdsNote').innerHTML = better
+    ? `Weighting the label-informative features <strong>improved</strong> class separation. Both panels are coloured by class; PCA and the fidelity reference stay unweighted, so the error colours still measure true-geometry distortion.`
+    : (worse
+      ? `Weighting <strong>reduced</strong> class separation here &mdash; the emphasised features may not align with the true neighbourhood structure. Both panels coloured by class.`
+      : `Weighting left class separation roughly unchanged. Both panels coloured by class.`);
+
+  if(typeof Plotly==='undefined') return;
+  const classColorArr = (d.table.labels||[]).map(l=>classColor(l));
+  const mk = (xs,ys)=>({ type:'scattergl', mode:'markers', x:xs, y:ys,
+    marker:{ size:7, color:classColorArr, line:{color:'rgba(0,0,0,0.5)',width:0.4} },
+    customdata:d.table.ids.map((id,i)=>[d.table.class_names[i],id]),
+    hovertemplate:'idx %{customdata[1]} · %{customdata[0]}<extra></extra>' });
+  const lay = (title)=> baseLayout({
+    title:{text:title,font:{size:12,color:'#e8edf3'},x:0.03,xanchor:'left'},
+    xaxis:Object.assign({title:'dim 1'},AXIS), yaxis:Object.assign({title:'dim 2'},AXIS),
+    showlegend:false, height:300,
+  });
+  Plotly.react('wmdsPlain', [mk(mc.plain.x, mc.plain.y)], lay('Plain MDS'), PLOT_CONFIG);
+  Plotly.react('wmdsWeighted', [mk(d.table.mds.x, d.table.mds.y)], lay('Weighted MDS'), PLOT_CONFIG);
 }
 
 let _esQuadBound=false;
@@ -1097,7 +1151,10 @@ function bindEsQuadrants(){
         state.esActiveQuad=null; state.esSel=new Set();
       }else{
         state.esActiveQuad=quad;
-        const test=ES_QUADS[quad];
+        const tau=esNearZeroTau(d);
+        const test = quad==='nearZero'
+          ? (pe,me)=> esIsNearZero(pe,me,tau)
+          : ES_QUADS[quad];
         const sel=new Set();
         d.table.pca.err.forEach((pe,i)=>{ if(test(pe, d.table.mds.err[i])) sel.add(i); });
         state.esSel=sel;
@@ -1168,15 +1225,33 @@ function clearEsSelection(){
 
 // per-quadrant point counts (independent of current selection)
 function updateEsQuadCounts(d){
-  const counts={ bothFP:0, bothFN:0, pcaFPmdsFN:0, pcaFNmdsFP:0 };
+  const counts={ bothFP:0, bothFN:0, pcaFPmdsFN:0, pcaFNmdsFP:0, nearZero:0 };
+  const tau=esNearZeroTau(d);
+  // "large" near-zero points = balanced-severe (cancelling FP & FN); flag them
+  const dmax=distortionMax(d);
+  let nearZeroLarge=0;
   d.table.pca.err.forEach((pe,i)=>{
     const me=d.table.mds.err[i];
+    if(esIsNearZero(pe,me,tau)){
+      counts.nearZero++;
+      const tot=Math.abs(d.table.pca.fp[i])+Math.abs(d.table.pca.fn[i])+
+                Math.abs(d.table.mds.fp[i])+Math.abs(d.table.mds.fn[i]);
+      if(tot > 0.35*dmax) nearZeroLarge++;   // sizeable distortion despite ~0 error
+      return;                                  // near-zero points don't count as a quadrant
+    }
     for(const q in ES_QUADS){ if(ES_QUADS[q](pe,me)){ counts[q]++; break; } }
   });
   Object.keys(counts).forEach(q=>{
     const el=document.querySelector(`#esQuadrants .es-quad-count[data-count="${q}"]`);
     if(el) el.textContent=counts[q];
   });
+  // annotate the near-zero button with how many are balanced-severe (a warning)
+  const nzBtn=document.querySelector('#esQuadrants .es-quad-nearzero .es-quad-desc');
+  if(nzBtn){
+    nzBtn.innerHTML = nearZeroLarge>0
+      ? `|error|&asymp;0 · <strong>${nearZeroLarge} large</strong> (distorted)`
+      : `|error|&asymp;0 · all small (faithful)`;
+  }
 }
 
 const ES_TABLE_COLS=[
@@ -1188,7 +1263,8 @@ const ES_TABLE_COLS=[
 function updateEsDetail(d, source){
   const idx=[...state.esSel];
   const quadName={ bothFP:'Both FP', bothFN:'Both FN',
-    pcaFPmdsFN:'PCA-FP / MDS-FN', pcaFNmdsFP:'PCA-FN / MDS-FP' };
+    pcaFPmdsFN:'PCA-FP / MDS-FN', pcaFNmdsFP:'PCA-FN / MDS-FP',
+    nearZero:'Near-zero (check size for balanced-severe)' };
   $('esCount').textContent = idx.length
     ? `${idx.length} point${idx.length>1?'s':''} selected`
     : 'No points selected: drag on any plot or pick a quadrant';
@@ -1267,6 +1343,51 @@ function renderVerdictBanner(d){
 
 const fmt3 = (x)=> (x==null||isNaN(x)) ? '—' : (x>=0? x.toFixed(3) : x.toFixed(3));
 const sgn3 = (x)=> (x>=0?'+':'') + x.toFixed(3);
+
+/* DATA & LABELS verdict: do the class labels describe the data's structure?
+   Driven by k-means ARI vs labels, with the silhouette cluster count as
+   supporting evidence. Three tiers so it never over-claims. */
+function renderLabelsBanner(d){
+  const banner = $('labelsBanner');
+  const km = d.kmeans;
+  if(!km){ banner.hidden = true; return; }
+  banner.hidden = false;
+  const hi = km.high_d || {};
+  const ari = hi.ari_vs_labels;
+  const nCls = km.n_classes;
+  const silK = km.best_k_by_silhouette;
+  const badge = $('lbBadge'), headline = $('lbHeadline'), sub = $('lbSub');
+  banner.classList.remove('vb-decisive','vb-tie','vb-soft');
+
+  // tier by ARI: >=0.7 good, 0.4-0.7 partial, <0.4 poor
+  let tier;
+  if(ari == null) tier = 'partial';
+  else if(ari >= 0.7) tier = 'good';
+  else if(ari >= 0.4) tier = 'partial';
+  else tier = 'poor';
+
+  const ariStr = ari!=null ? ari.toFixed(2) : '—';
+  const silNote = (silK!=null && nCls!=null && silK!==nCls)
+    ? ` The data looks like it has ${silK} natural group${silK>1?'s':''}, not ${nCls}.`
+    : (silK!=null ? ` The data's natural group count (${silK}) matches your ${nCls} labels.` : '');
+
+  if(tier === 'good'){
+    banner.classList.add('vb-decisive');       // green styling
+    badge.textContent = 'LABELS ✓';
+    headline.innerHTML = `The labels <strong>describe the data well</strong>`;
+    sub.textContent = `k-means clusters match your labels (ARI ${ariStr}).${silNote} Class-based scores are trustworthy here.`;
+  } else if(tier === 'poor'){
+    banner.classList.add('vb-soft');            // amber styling
+    badge.textContent = 'LABELS ✗';
+    headline.innerHTML = `The labels <strong>do NOT match</strong> the data's structure`;
+    sub.textContent = `k-means finds a different grouping (ARI ${ariStr}).${silNote} Prefer the geometric (label-free) metric; a "bad" projection may be the labels' fault.`;
+  } else {
+    banner.classList.add('vb-tie');             // neutral styling
+    badge.textContent = 'LABELS ~';
+    headline.innerHTML = `The labels <strong>partly match</strong> the data`;
+    sub.textContent = `k-means only partially agrees with your labels (ARI ${ariStr}).${silNote} Read class-based scores with some caution.`;
+  }
+}
 
 function componentBars(pm){
   // pm: per_method dict. Build a small aligned bar table for the 4 components.
