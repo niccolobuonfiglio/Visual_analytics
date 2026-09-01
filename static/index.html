@@ -58,30 +58,18 @@
           </label>
           <label class="check">
             <input type="checkbox" id="weightedMds">
-            <span>Weighted MDS <span class="hint">weighted Euclidean</span></span>
+            <span>Weighted MDS <span class="hint">mutual-info weighted Euclidean</span></span>
           </label>
-          <label class="field" id="weightMethodField" hidden>
-            <span class="field-label">Weight method</span>
-            <select id="weightMethod" class="inp">
-              <option value="mutual_info">mutual info</option>
-              <option value="correlation">correlation</option>
-              <option value="custom">custom</option>
-            </select>
-          </label>
-          <label class="field" id="customWeightsField" hidden>
-            <span class="field-label">Custom weights <span class="hint">comma-separated, one per feature</span></span>
-            <input type="text" id="customWeights" class="inp" placeholder="e.g. 1, 0.5, 2, 1, ...">
-          </label>
+          <p class="ctl-note" style="margin-top:2px">Scales each feature by its
+            mutual information with the class label before MDS, so the most
+            class-informative features drive the layout. PCA and the fidelity
+            reference stay unweighted.</p>
         </section>
 
         <section class="ctl-group">
           <div class="ctl-group-head">
             <span class="ctl-num">02</span>
             <h2>Metric</h2>
-          </div>
-          <div class="seg" id="metricSeg" role="tablist">
-            <button class="seg-btn active" data-metric="intrusion" role="tab">intrusion</button>
-            <button class="seg-btn" data-metric="classic" role="tab">classic</button>
           </div>
 
           <div class="metric-panel" id="intrusionPanel">
@@ -108,17 +96,6 @@
             preserved the data&rsquo;s neighbourhoods, with no assumption that the labels
             are correct. Turn on <em>class-aware</em> only when you trust the labels and
             want to measure <em>class</em>-structure fidelity instead.</p>
-
-          <div class="metric-panel" id="classicPanel" hidden>
-            <label class="field">
-              <span class="field-label">α -> same-class weight <span class="mono" id="alphaEcho">1.0</span></span>
-              <input type="range" id="alpha" class="slider" min="0" max="3" step="0.1" value="1">
-            </label>
-            <label class="field">
-              <span class="field-label">β -> different-class weight <span class="mono" id="betaEcho">1.0</span></span>
-              <input type="range" id="beta" class="slider" min="0" max="3" step="0.1" value="1">
-            </label>
-          </div>
         </section>
 
         <section class="ctl-group">
@@ -229,8 +206,6 @@
         <nav class="tabs" id="tabs">
           <button class="tab active" data-tab="errorspace">Error Space</button>
           <button class="tab" data-tab="verdict">Verdict &amp; Analysis</button>
-          <button class="tab" data-tab="comparison">Comparison</button>
-          <button class="tab" data-tab="balance">FP vs FN</button>
           <button class="tab" data-tab="centroids">Centroids</button>
           <button class="tab" data-tab="histograms">Histograms</button>
           <button class="tab" data-tab="table">Point table</button>
@@ -286,11 +261,6 @@
                 <i style="background:#d24b52"></i><i style="background:#e08a8f"></i><i style="background:#eef1f4"></i><i style="background:#82abd8"></i><i style="background:#3f7cc4"></i>
               </span>
               <span class="enc-desc"><span id="encColourDesc">severity-weighted error &nbsp;sign(err)&middot;&radic;(|err|&middot;(FP+FN))</span></span>
-              <span class="seg seg-sm enc-seg" id="colourModeSeg" role="tablist">
-                <button class="seg-btn active" data-cmode="severity" role="tab">severity</button>
-                <button class="seg-btn" data-cmode="faithful" role="tab">TP-aware</button>
-                <button class="seg-btn" data-cmode="signed" role="tab">raw err</button>
-              </span>
             </div>
             <div class="enc-item">
               <span class="enc-key">size</span>
@@ -388,19 +358,6 @@
               <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups — so this check runs before the verdict is trusted.
             </div>
             <div class="an-kmeans-body" id="anKmeansBody"></div>
-          </div>
-        </section>
-
-        <section class="panel" data-panel="comparison">
-          <div class="panel-caption">Per-point PCA error against MDS error. Points off the diagonal are embedded differently by the two methods; points in opposite-sign quadrants disagree on the direction of distortion.</div>
-          <div class="plot plot-square" id="cmpPlot"></div>
-        </section>
-
-        <section class="panel" data-panel="balance">
-          <div class="panel-caption">Per-point intrusion (FP) against extrusion (FN) for each method. Points in the upper-right suffer both distortions at once; points hugging an axis are dominated by one type. The dotted diagonal marks FP ≈ FN, where the net signed error cancels to zero.</div>
-          <div class="dual-plot">
-            <div class="plot" id="balPca"></div>
-            <div class="plot" id="balMds"></div>
           </div>
         </section>
 

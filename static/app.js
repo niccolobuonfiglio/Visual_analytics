@@ -5,7 +5,7 @@ const state = {
   result: null,        // latest run result
   metric: 'intrusion',
   weight: 'rank',
-  colourMode: 'severity',  // 'severity' | 'faithful' (TP-aware) | 'signed'
+
   esView: 'error',         // 'error' | 'class' -> Error Space colour-by mode
   esSel: new Set(),    // Error Space: shared selection across all 3 plots
   esActiveQuad: null,  // Error Space: currently active quadrant button (or null)
@@ -105,21 +105,11 @@ function bindControls(){
     el.addEventListener('input', upd); upd();
   };
   echo('neighbors','kEcho');
-  echo('alpha','alphaEcho',(v)=>parseFloat(v).toFixed(1));
-  echo('beta','betaEcho',(v)=>parseFloat(v).toFixed(1));
   echo('normScale','normScaleEcho',(v)=>parseFloat(v).toFixed(1));
   echo('threshold','threshEcho',(v)=>parseFloat(v).toFixed(2));
   if($('recallAlpha')) echo('recallAlpha','recallAlphaEcho',(v)=>parseFloat(v).toFixed(2));
 
   // metric segmented control
-  $('metricSeg').addEventListener('click', (e)=>{
-    const b = e.target.closest('.seg-btn'); if(!b) return;
-    state.metric = b.dataset.metric;
-    document.querySelectorAll('#metricSeg .seg-btn').forEach(x=>x.classList.toggle('active', x===b));
-    $('intrusionPanel').hidden = state.metric!=='intrusion';
-    $('classicPanel').hidden = state.metric!=='classic';
-  });
-
   // weight segmented control
   $('weightSeg').addEventListener('click', (e)=>{
     const b = e.target.closest('.seg-btn'); if(!b) return;
@@ -133,30 +123,6 @@ function bindControls(){
     $('normScaleField').hidden = !(v==='tanh'||v==='sigmoid');
   });
 
-  // weighted MDS → reveal method picker; method=custom → reveal weights box
-  const syncWeighted = ()=>{
-    const on = $('weightedMds').checked;
-    $('weightMethodField').hidden = !on;
-    $('customWeightsField').hidden = !(on && $('weightMethod').value==='custom');
-  };
-  $('weightedMds').addEventListener('change', syncWeighted);
-  $('weightMethod').addEventListener('change', syncWeighted);
-
-  // Error Space colour channel: severity / TP-aware / raw signed error
-  const COLOUR_DESC = {
-    severity: 'severity-weighted error &nbsp;sign(err)&middot;&radic;(|err|&middot;(FP+FN))',
-    faithful: 'TP-aware &nbsp;hue = sign, whiteness earned only by low distortion (grey = distorted both ways)',
-    signed:   'signed error &nbsp;FN&nbsp;<b>&minus;</b>&nbsp;&hellip;&nbsp;True&nbsp;&hellip;&nbsp;<b>+</b>&nbsp;FP',
-  };
-  $('colourModeSeg').addEventListener('click', (e)=>{
-    const b = e.target.closest('.seg-btn'); if(!b) return;
-    state.colourMode = b.dataset.cmode;
-    document.querySelectorAll('#colourModeSeg .seg-btn').forEach(x=>
-      x.classList.toggle('active', x===b));
-    $('encColourDesc').innerHTML = COLOUR_DESC[state.colourMode] || COLOUR_DESC.signed;
-    if(state.result && state.esView==='error') renderErrorSpace(state.result);
-  });
-
   // Error Space view: colour by error/fidelity, or by class ("see classes")
   $('esViewSeg').addEventListener('click', (e)=>{
     const b = e.target.closest('.seg-btn'); if(!b) return;
@@ -166,10 +132,9 @@ function bindControls(){
     const cls = state.esView==='class';
     // dim the error-colour legend when showing classes; show a class hint
     $('encLegend').style.opacity = cls ? 0.4 : 1;
-    $('colourModeSeg').style.pointerEvents = cls ? 'none' : 'auto';
     $('esViewHint').textContent = cls
       ? 'each point tinted by its true class; compare against the error view to see which classes the projection distorts'
-      : 'points tinted by their signed error; drag to select, quadrants below split by error sign';
+      : 'points tinted by their severity-weighted error; drag to select, quadrants below split by error sign';
     if(state.result) renderErrorSpace(state.result);
   });
 
@@ -232,12 +197,10 @@ function collectParams(){
     adaptive: $('adaptive') ? $('adaptive').checked : false,
     normalize: $('normalize').value,
     norm_scale: parseFloat($('normScale').value),
-    alpha: parseFloat($('alpha').value),
-    beta: parseFloat($('beta').value),
     no_standardize: $('noStandardize').checked,
     threshold: parseFloat($('threshold').value),
     weighted_mds: $('weightedMds').checked,
-    weight_method: $('weightMethod').value,
+    weight_method: 'mutual_info',
     // analysis layer toggles
     kmeans: true,
     rel_metrics: true,
@@ -248,12 +211,6 @@ function collectParams(){
   };
   const ms = $('maxSamples').value;
   if(ms) p.max_samples = parseInt(ms);
-  if(p.weighted_mds && p.weight_method==='custom'){
-    const raw = $('customWeights').value.trim();
-    if(raw){
-      p.custom_weights = raw.split(',').map(s=>parseFloat(s.trim())).filter(v=>!isNaN(v));
-    }
-  }
   // if(csvState.path){ p.csv_path = csvState.path; p.label_col = $('labelCol').value; }
   return p;
 }
@@ -310,7 +267,7 @@ function clearResults() {
   setConsoleDot('');
   
   // Clear plots
-  ['cmpPlot', 'balPca', 'balMds', 'centPlot', 'histPca', 'histMds',
+  ['centPlot', 'histPca', 'histMds',
    'esPca', 'esMds', 'esErr'].forEach(id => {
     const el = $(id);
     if (el) {
@@ -389,16 +346,11 @@ async function restoreLast(){
 function applyParamsToForm(p){
   if(!p) return;
   $('dataset').value = p.dataset || 'wine';
-  state.metric = p.metric || 'intrusion';
-  document.querySelectorAll('#metricSeg .seg-btn').forEach(x=>x.classList.toggle('active', x.dataset.metric===state.metric));
-  $('intrusionPanel').hidden = state.metric!=='intrusion';
-  $('classicPanel').hidden = state.metric!=='classic';
+  state.metric = 'intrusion';
   state.weight = p.weight || 'rank';
   document.querySelectorAll('#weightSeg .seg-btn').forEach(x=>x.classList.toggle('active', x.dataset.weight===state.weight));
   const setV=(id,v)=>{ if(v!==undefined&&v!==null) $(id).value=v; };
   setV('neighbors',p.neighbors); $('kEcho').textContent=p.neighbors??10;
-  setV('alpha',p.alpha); $('alphaEcho').textContent=(p.alpha??1).toFixed?.(1)??p.alpha;
-  setV('beta',p.beta); $('betaEcho').textContent=(p.beta??1).toFixed?.(1)??p.beta;
   setV('normalize',p.normalize);
   setV('normScale',p.norm_scale); $('normScaleEcho').textContent=(p.norm_scale??3).toFixed?.(1)??p.norm_scale;
   $('normScaleField').hidden = !(p.normalize==='tanh'||p.normalize==='sigmoid');
@@ -408,10 +360,6 @@ function applyParamsToForm(p){
   $('noStandardize').checked = !!p.no_standardize;
   if(p.max_samples) $('maxSamples').value = p.max_samples;
   $('weightedMds').checked = !!p.weighted_mds;
-  if(p.weight_method) $('weightMethod').value = p.weight_method;
-  if(p.custom_weights) $('customWeights').value = p.custom_weights.join(', ');
-  $('weightMethodField').hidden = !p.weighted_mds;
-  $('customWeightsField').hidden = !(p.weighted_mds && p.weight_method==='custom');
 }
 
 /* RENDER */
@@ -446,10 +394,7 @@ function renderAll(d){
   // the classic metric has no separable FP/FN (its "parts" are just the
   // positive/negative halves of one score), so the FP-vs-FN panel is
   // meaningless there and is hidden entirely
-  syncBalanceTab(d);
   safeRender('errorspace', ()=>renderErrorSpace(d));
-  safeRender('comparison', ()=>renderComparison(d));
-  if(hasSeparableParts(d)) safeRender('balance', ()=>renderBalance(d));
   safeRender('centroids', ()=>renderCentroids(d));
   safeRender('histograms', ()=>renderHistograms(d));
 }
@@ -457,28 +402,13 @@ function renderAll(d){
 /** The intrusion metric computes genuine, independent FP and FN components.
  *  The classic metric only splits one signed score into halves, so FP and FN
  *  are never both non-zero and a FP-vs-FN scatter would be a degenerate "L". */
-function hasSeparableParts(d){ return d.metric !== 'classic'; }
-
-/** Show/hide the FP vs FN tab to match the metric, and move off it if it is
- *  the active tab when it disappears. */
-function syncBalanceTab(d){
-  const show = hasSeparableParts(d);
-  const tab = document.querySelector('.tab[data-tab="balance"]');
-  const panel = document.querySelector('.panel[data-panel="balance"]');
-  if(!tab || !panel) return;
-  tab.hidden = !show;
-  if(!show && tab.classList.contains('active')){
-    // fall back to the Error Space tab
-    activateTab('errorspace');
-  }
-}
 function safeRender(label, fn){
   try{ fn(); }
   catch(e){ console.error(`render[${label}] failed:`, e); }
 }
 function plotlyUnavailable(){
   const msg = 'Plotting library did not load: check your network connection and reload. Tables and console output are available.';
-  ['cmpPlot','balPca','balMds','centPlot','histPca','histMds',
+  ['centPlot','histPca','histMds',
    'esPca','esMds','esErr'].forEach(id=>{
     const el=$(id); if(el) el.innerHTML=`<div class="plot-fallback">${msg}</div>`;
   });
@@ -584,43 +514,6 @@ function severityError(t){
   });
 }
 
-/* ============================================================
-   TP-AWARE COLOUR  (solves "white != true positive")
-   Problem: colour = err = FP - FN is ~0 for BOTH a genuinely
-   faithful point (FP=FN=0) and a point badly distorted in both
-   directions at once (FP=FN=large). Both render white, so white
-   does NOT mean "true positive".
-   Fix: return an explicit RGB string per point instead of a
-   scalar on the diverging scale. The sign still drives hue
-   (red = FN, blue = FP), but the WHITENESS is earned only by low
-   total distortion: a balanced-but-distorted point is pulled
-   toward a neutral GREY, never the pure white reserved for real
-   true positives. Encoded via HSL: hue from sign, saturation from
-   imbalance, lightness from fidelity.                           */
-function tpAwareColors(t){
-  const out = [];
-  // scale reference: the largest total distortion in this method
-  let dmax = 0;
-  for(let i=0;i<t.fp.length;i++) dmax = Math.max(dmax, Math.abs(t.fp[i])+Math.abs(t.fn[i]));
-  if(dmax<=0) dmax = 1;
-  for(let i=0;i<t.fp.length;i++){
-    const fp=Math.abs(t.fp[i]), fn=Math.abs(t.fn[i]);
-    const e=t.err[i], dist=fp+fn;
-    const imbalance = dist>0 ? Math.abs(e)/dist : 0;       // 0..1 how one-sided
-    const load = Math.min(dist/dmax, 1);                    // 0..1 how distorted
-    if(dist < 1e-9){                                        // genuine TP -> pure white
-      out.push('rgb(238,241,244)'); continue;
-    }
-    const hue = e<0 ? 4 : 214;                              // red (FN) vs blue (FP)
-    // saturation: one-sided AND loaded points are vivid; balanced ones grey out
-    const sat = Math.round(12 + 76*imbalance*Math.sqrt(load));
-    // lightness: faithful -> light (~92%), heavily distorted -> darker (~52%)
-    const light = Math.round(92 - 40*load);
-    out.push(`hsl(${hue}, ${sat}%, ${light}%)`);
-  }
-  return out;
-}
-
 /** Symmetric colour limit for the severity scale, rounded up for clean ticks. */
 function severityVmax(d){
   let peak = 0;
@@ -629,16 +522,10 @@ function severityVmax(d){
   });
   return peak > 0 ? Math.ceil(peak*20)/20 : 0.1;
 }
-/** Colour channel actually used by the Error Space plots. */
+/** Colour channel used by the Error Space plots: severity-weighted signed error. */
 function colourChannel(t, d){
-  if(state.colourMode === 'faithful'){
-    return { mode:'rgb', colors: tpAwareColors(t), label:'TP-aware' };
-  }
-  if(state.colourMode === 'severity'){
-    return { vals: severityError(t), vmax: severityVmax(d),
-             label: 'severity-weighted error' };
-  }
-  return { vals: t.err, vmax: d.vmax, label: 'signed error' };
+  return { vals: severityError(t), vmax: severityVmax(d),
+           label: 'severity-weighted error' };
 }
 /** Per-point class colours for the "see classes" view. */
 function classColorArray(d){
@@ -658,46 +545,6 @@ function distortionSizes(tot, dmax){
 }
 
 /* comparison scatter */
-function renderComparison(d){
-  const vmax = d.vmax;
-  const labels = d.table.labels, names = d.table.class_names;
-  const uniq = [...new Set(labels)];
-  const traces = uniq.map(code=>{
-    const idx = labels.map((l,i)=>l===code?i:-1).filter(i=>i>=0);
-    return {
-      type:'scattergl', mode:'markers',
-      x: idx.map(i=>d.table.pca.err[i]),
-      y: idx.map(i=>d.table.mds.err[i]),
-      name: names[idx[0]],
-      marker:{ size:8, color:classColor(code), line:{color:'rgba(0,0,0,0.5)',width:0.5} },
-      customdata: idx.map(i=>[d.table.ids[i], names[i]]),
-      hovertemplate:'idx %{customdata[0]} · %{customdata[1]}<br>PCA %{x:.3f} · MDS %{y:.3f}<extra></extra>',
-    };
-  });
-  const guide = {
-    type:'scatter', mode:'lines', x:[-vmax,vmax], y:[-vmax,vmax],
-    line:{color:'#33404f',width:1,dash:'dot'}, hoverinfo:'skip', showlegend:false
-  };
-  const layout = baseLayout({
-    showlegend:true,
-    legend:{ font:{size:10,color:'#9aa7b6'}, bgcolor:'rgba(21,26,33,0.7)',
-             bordercolor:'#262f3b', borderwidth:1, x:0.02, y:0.98 },
-    xaxis:Object.assign({title:'PCA error',range:[-vmax,vmax],zeroline:true},AXIS),
-    yaxis:Object.assign({title:'MDS error',range:[-vmax,vmax],zeroline:true},AXIS),
-    annotations:[
-      quadLabel(-vmax*0.9,-vmax*0.9,'both FN','left','bottom'),
-      quadLabel(vmax*0.9,vmax*0.9,'both FP','right','top'),
-      quadLabel(-vmax*0.9,vmax*0.9,'PCA-FN / MDS-FP','left','top'),
-      quadLabel(vmax*0.9,-vmax*0.9,'PCA-FP / MDS-FN','right','bottom'),
-    ]
-  });
-  Plotly.react('cmpPlot', [guide, ...traces], layout, PLOT_CONFIG);
-}
-function quadLabel(x,y,text,xa,ya){
-  return { x, y, text, showarrow:false, xanchor:xa, yanchor:ya,
-    font:{family:'Space Mono',size:9,color:'#63707f'} };
-}
-
 /* histograms
    Bars are centred on their bin's midpoint (so a bar sits symmetrically over
    the error value it represents) and hovering one reports the exact half-open
@@ -823,48 +670,6 @@ function renderHistograms(d){
 }
 
 /* FP vs FN scatter (intrusion/extrusion balance), one panel per method */
-function renderBalance(d){
-  const labels=d.table.labels, names=d.table.class_names;
-  const uniq=[...new Set(labels)].sort((a,b)=>a-b);
-
-  function build(divId, t, label){
-    // symmetric upper bound so the FP≈FN diagonal sits at 45°
-    const maxv=Math.max(0.001, ...t.fp, ...t.fn);
-    const hi=Math.ceil(maxv*20)/20;   // round up to a clean-ish tick
-    const traces=uniq.map(code=>{
-      const idx=labels.map((l,i)=>l===code?i:-1).filter(i=>i>=0);
-      return {
-        type:'scattergl', mode:'markers',
-        x: idx.map(i=>t.fp[i]),
-        y: idx.map(i=>t.fn[i]),
-        name: names[idx[0]],
-        marker:{ size:7, color:classColor(code), line:{color:'rgba(0,0,0,0.5)',width:0.5} },
-        customdata: idx.map(i=>[d.table.ids[i], names[i], t.err[i]]),
-        hovertemplate:'idx %{customdata[0]} · %{customdata[1]}<br>FP %{x:.3f} · FN %{y:.3f}<br>net %{customdata[2]:.3f}<extra></extra>',
-      };
-    });
-    const diag={ type:'scatter',mode:'lines',x:[0,hi],y:[0,hi],
-      line:{color:'#33404f',width:1,dash:'dot'}, hoverinfo:'skip', showlegend:false,
-      name:'FP = FN' };
-    Plotly.react(divId,[diag,...traces], baseLayout({
-      title:{text:`${label}  ·  FP vs FN`,font:{size:12,color:'#9aa7b6'},x:0.02,xanchor:'left'},
-      showlegend:true,
-      legend:{ font:{size:9,color:'#9aa7b6'}, bgcolor:'rgba(21,26,33,0.7)',
-               bordercolor:'#262f3b',borderwidth:1, x:0.98, xanchor:'right', y:0.98 },
-      annotations:[
-        { x:hi*0.97, y:hi*0.97, text:'both high', showarrow:false, xanchor:'right', yanchor:'top',
-          font:{family:'Space Mono',size:9,color:'#63707f'} },
-        { x:hi*0.5, y:hi*0.5, text:'FP ≈ FN (net ≈ 0)', showarrow:false, xanchor:'left', yanchor:'bottom',
-          textangle:-45, font:{family:'Space Mono',size:8,color:'#4a5563'} },
-      ],
-      xaxis:Object.assign({title:'FP  (intrusion)',range:[0,hi],zeroline:true},AXIS),
-      yaxis:Object.assign({title:'FN  (extrusion)',range:[0,hi],zeroline:true,scaleanchor:'x',scaleratio:1},AXIS),
-    }),PLOT_CONFIG);
-  }
-  build('balPca', d.table.pca, 'PCA');
-  build('balMds', d.table.mds, 'MDS');
-}
-
 /* class-centroid trajectory: high-D -> PCA -> MDS */
 function renderCentroids(d){
   const c=d.centroids;
@@ -1014,21 +819,16 @@ function esBaseTrace(t, vmax, d, kind, dmax){
 
   // ----- colour: either the class-view, or one of the error colour modes -----
   const classView = state.esView === 'class';
-  let markerColor, marker;
+  let marker;
   if(classView){
     // colour by class; size stays as distortion so structure is still visible
     marker = { size:sizes, color: classColorArray(d),
                line:{color:'rgba(0,0,0,0.45)',width:0.5} };
   } else {
-    const ch = colourChannel(t, d);
-    if(ch.mode === 'rgb'){                    // TP-aware: explicit per-point RGB
-      marker = { size:sizes, color: ch.colors,
-                 line:{color:'rgba(0,0,0,0.5)',width:0.5} };
-    } else {                                  // severity or raw: diverging scale
-      marker = { size:sizes, color: ch.vals, colorscale:DIVERGING,
-                 cmin:-ch.vmax, cmax:ch.vmax,
-                 line:{color:'rgba(0,0,0,0.5)',width:0.5} };
-    }
+    const ch = colourChannel(t, d);           // severity-weighted diverging scale
+    marker = { size:sizes, color: ch.vals, colorscale:DIVERGING,
+               cmin:-ch.vmax, cmax:ch.vmax,
+               line:{color:'rgba(0,0,0,0.5)',width:0.5} };
   }
   const sevVals = severityError(isErr ? d.table.pca : t);  // for hover only
   return {
@@ -1054,6 +854,12 @@ function esRingTrace(){
   return { type:'scattergl', mode:'markers', x:[], y:[],
     marker:{ size:15, color:'rgba(0,0,0,0)', line:{color:'#7CFC4D',width:2.2} },
     hoverinfo:'skip', showlegend:false };
+}
+
+/** Build a Plotly annotation labelling a corner of the error-space scatter. */
+function quadLabel(x, y, text, xanchor, yanchor){
+  return { x, y, text, xref:'x', yref:'y', xanchor, yanchor,
+    showarrow:false, font:{size:9, color:'#63707f'} };
 }
 
 function renderErrorSpace(d){

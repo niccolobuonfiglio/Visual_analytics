@@ -137,7 +137,7 @@ def maybe_subsample(X: NDArray[np.float64], y: NDArray[np.int_],
 
 def compute_feature_weights(X: NDArray[np.float64],
                             labels: Optional[Sequence[int]] = None,
-                            method: str = "inverse_variance",
+                            method: str = "mutual_info",
                             custom: Optional[Sequence[float]] = None
                             ) -> NDArray[np.float64]:
     """Return a non-negative per-feature weight vector for weighted MDS.
@@ -147,21 +147,23 @@ def compute_feature_weights(X: NDArray[np.float64],
     as much to the squared distance. Weights are normalised to average 1 so the
     overall distance scale is comparable to the unweighted case.
 
+    Weighting is by **mutual information** with the class label: features that are
+    more informative about the class are up-weighted, so the MDS layout is driven
+    by the measurements that carry the class signal. (This is the only supported
+    weighting scheme: correlation-based down-weighting was weaker and
+    inverse-variance is a no-op under standardization, so both were removed.)
+
     Parameters
     ----------
     X : ndarray, shape (n_samples, n_features)
         Feature matrix the weights are computed from (already standardized when
         standardization is on).
-    labels : sequence of int, optional
-        Class labels; required for ``mutual_info``.
-    method : {'mutual_info', 'correlation', 'custom'}
-        - ``mutual_info`` : up-weight features informative about the class label
-          (mutual information, needs ``labels``).
-        - ``correlation`` : down-weight features that are redundant (highly
-          correlated with the rest); weight ``1 - mean|corr to others|``.
-        - ``custom`` : use the supplied ``custom`` vector verbatim.
-    custom : sequence of float, optional
-        Explicit weights, used when ``method='custom'``.
+    labels : sequence of int
+        Class labels; required.
+    method : str
+        Retained for API compatibility; only ``'mutual_info'`` is supported.
+    custom : ignored
+        Retained for API compatibility.
 
     Returns
     -------
@@ -171,36 +173,16 @@ def compute_feature_weights(X: NDArray[np.float64],
     X = np.asarray(X, dtype=float)
     n_features = X.shape[1]
 
-    if method == "custom":
-        if custom is None:
-            raise ValueError("method='custom' requires a custom weight vector.")
-        w = np.asarray(custom, dtype=float)
-        if w.shape[0] != n_features:
-            raise ValueError(f"custom weights length {w.shape[0]} != "
-                             f"feature count {n_features}.")
-    elif method == "correlation":
-        if n_features < 2:
-            w = np.ones(n_features)
-        else:
-            C = np.corrcoef(X, rowvar=False)
-            C = np.nan_to_num(C, nan=0.0)
-            np.fill_diagonal(C, 0.0)
-            redundancy = np.abs(C).sum(axis=1) / (n_features - 1)
-            w = 1.0 - redundancy            # unique features weigh more
-    elif method == "mutual_info":
-        if labels is None:
-            raise ValueError("method='mutual_info' requires labels.")
-        w = mutual_info_classif(X, np.asarray(labels),
-                                random_state=RANDOM_STATE)
-    else:
-        raise ValueError(f"Unknown weight method '{method}'. Use "
-                         "mutual_info, correlation or custom.")
+    if labels is None:
+        raise ValueError("Weighted MDS requires class labels for mutual-information "
+                         "weighting.")
+    w = mutual_info_classif(X, np.asarray(labels), random_state=RANDOM_STATE)
 
     w = np.clip(np.asarray(w, dtype=float), 0.0, None)
     total = w.sum()
-    if total <= 0:                          
+    if total <= 0:
         return np.ones(n_features)
-    return w * (n_features / total)         
+    return w * (n_features / total)
 
 
 def build_projections(X: NDArray[np.float64], standardize: bool = True,
