@@ -141,6 +141,19 @@
               class must form a full <em>clique</em>, which makes recall &mdash; and F1
               &mdash; discriminating. Default 0.5 keeps recall informative.</p>
           </div>
+          <label class="field">
+            <span class="field-label">Ground-truth clusterer</span>
+            <select id="clusterMethod" class="inp">
+              <option value="kmeans">k-means (convex)</option>
+              <option value="gmm">Gaussian mixture (elliptical)</option>
+              <option value="spectral">spectral (non-convex)</option>
+            </select>
+          </label>
+          <p class="ctl-note" style="margin-top:4px">k-means assumes convex,
+            spherical clusters, so it can wrongly report &ldquo;labels are not
+            clusters&rdquo; on non-convex data (e.g. concentric rings). Switch to
+            <em>spectral</em> to recover non-convex clusters, or <em>GMM</em> for
+            elliptical ones.</p>
           <p class="ctl-note">The PCA-vs-MDS verdict, precision/recall/F1 and the k-means ground-truth check always run and appear in the <strong>Verdict &amp; Analysis</strong> tab.</p>
         </section>
 
@@ -182,7 +195,7 @@
         <!-- VERDICT BANNER: the headline PCA-vs-MDS decision, always visible -->
         <div class="verdict-banner" id="verdictBanner" hidden>
           <div class="vb-main">
-            <div class="vb-badge" id="vbBadge">—</div>
+            <div class="vb-badge" id="vbBadge">:</div>
             <div class="vb-text">
               <div class="vb-headline" id="vbHeadline">Awaiting analysis</div>
               <div class="vb-sub" id="vbSub"></div>
@@ -194,7 +207,7 @@
         <!-- DATA & LABELS BANNER: do the labels describe the data's structure? -->
         <div class="verdict-banner labels-banner" id="labelsBanner" hidden>
           <div class="vb-main">
-            <div class="vb-badge" id="lbBadge">—</div>
+            <div class="vb-badge" id="lbBadge">:</div>
             <div class="vb-text">
               <div class="vb-headline" id="lbHeadline">Awaiting analysis</div>
               <div class="vb-sub" id="lbSub"></div>
@@ -236,8 +249,8 @@
               <span class="es-quad-count" data-count="pcaFNmdsFP">0</span>
             </button>
             <button class="es-quad es-quad-nearzero" data-quad="nearZero">
-              <span class="es-quad-key">Near-zero</span>
-              <span class="es-quad-desc">|error|&nbsp;&asymp;&nbsp;0 · check size</span>
+              <span class="es-quad-key">Near-zero net error</span>
+              <span class="es-quad-desc">|err|&nbsp;&asymp;&nbsp;0 · not always faithful</span>
               <span class="es-quad-count" data-count="nearZero">0</span>
             </button>
             <button class="ghost-btn ghost-btn-sm es-clear" id="esClear">Clear selection</button>
@@ -282,6 +295,10 @@
               <div class="plot es-plot" id="wmdsPlain"></div>
               <div class="plot es-plot" id="wmdsWeighted"></div>
             </div>
+            <div class="wmds-weights-wrap">
+              <div class="wmds-weights-label">Feature weights (mutual information with the class) &mdash; taller bars drove the layout more</div>
+              <div class="plot" id="wmdsWeights" style="height:180px"></div>
+            </div>
           </div>
 
           <div class="es-grid">
@@ -314,7 +331,7 @@
           <div class="an-card an-verdict" id="anVerdictCard">
             <div class="an-card-head">
               <h3>PCA vs MDS verdict</h3>
-              <span class="an-chip" id="anVerdictChip">—</span>
+              <span class="an-chip" id="anVerdictChip">:</span>
             </div>
             <div class="an-verdict-body" id="anVerdictBody"></div>
             <div class="an-verdict-components" id="anVerdictComponents"></div>
@@ -325,10 +342,10 @@
           <div class="an-card" id="anAnnealCard">
             <div class="an-card-head">
               <h3>Neighbourhood search &nbsp;<span class="an-subtle">simulated annealing</span></h3>
-              <span class="an-chip an-chip-quiet" id="anAnnealChip">—</span>
+              <span class="an-chip an-chip-quiet" id="anAnnealChip">:</span>
             </div>
             <div class="an-why" id="anAnnealWhy">
-              <strong>Why this is needed.</strong> The F1-score as a function of the neighbourhood size <em>k</em> is neither concave nor convex: enlarging <em>k</em> steadily raises recall but lowers precision in a bumpy way, so the combined score has several local peaks. A plain scan is wasteful and gradient methods get stuck, so the toolkit anneals — it accepts occasional worsening moves early on to escape local optima, then cools to refine. Crucially, no projection is recomputed during the search; only the similarity graph is rebuilt, which is what makes it cheap.
+              <strong>Why this is needed.</strong> The F1-score as a function of the neighbourhood size <em>k</em> is neither concave nor convex: enlarging <em>k</em> steadily raises recall but lowers precision in a bumpy way, so the combined score has several local peaks. A plain scan is wasteful and gradient methods get stuck, so the toolkit anneals : it accepts occasional worsening moves early on to escape local optima, then cools to refine. Crucially, no projection is recomputed during the search; only the similarity graph is rebuilt, which is what makes it cheap.
             </div>
             <div class="an-anneal-stats" id="anAnnealStats"></div>
             <div class="plot an-plot" id="anAnnealPlot"></div>
@@ -339,7 +356,7 @@
           <div class="an-card" id="anMetricsCard">
             <div class="an-card-head">
               <h3>Cluster-structure metrics &nbsp;<span class="an-subtle">precision · recall · F1</span></h3>
-              <span class="an-chip an-chip-quiet" id="anMetricsChip">—</span>
+              <span class="an-chip an-chip-quiet" id="anMetricsChip">:</span>
             </div>
             <div class="an-why">
               <strong>What this asks.</strong> Separately from projection fidelity, are the classes genuinely present as clusters in the high-dimensional data? Precision asks whether a point is surrounded by its own class; recall asks whether each class holds together; <strong>F1</strong> is their harmonic mean. These are computed on the data itself, so a low score is a property of the data, not of any projection.
@@ -352,10 +369,10 @@
           <div class="an-card" id="anKmeansCard">
             <div class="an-card-head">
               <h3>Ground-truth check &nbsp;<span class="an-subtle">k-means</span></h3>
-              <span class="an-chip an-chip-quiet" id="anKmeansChip">—</span>
+              <span class="an-chip an-chip-quiet" id="anKmeansChip">:</span>
             </div>
             <div class="an-why">
-              <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups — so this check runs before the verdict is trusted.
+              <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups : so this check runs before the verdict is trusted.
             </div>
             <div class="an-kmeans-body" id="anKmeansBody"></div>
           </div>
@@ -404,7 +421,7 @@
   <div class="modal-overlay" id="verdictModal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
       <div class="modal-head">
-        <h2 id="vmTitle">PCA vs MDS — full verdict</h2>
+        <h2 id="vmTitle">PCA vs MDS : full verdict</h2>
         <button class="modal-close" id="vmClose" aria-label="Close">✕</button>
       </div>
       <div class="modal-body" id="vmBody"></div>

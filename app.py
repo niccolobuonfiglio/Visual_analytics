@@ -176,7 +176,11 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         kmeans_res = rel_res = anneal_res = verdict_res = None
         try:
             if do_kmeans:
-                kmeans_res = kmeans_analysis(X_high, proj, y)
+                cluster_method = params.get("cluster_method", "kmeans")
+                if cluster_method not in ("kmeans", "gmm", "spectral"):
+                    cluster_method = "kmeans"
+                kmeans_res = kmeans_analysis(X_high, proj, y,
+                                             cluster_method=cluster_method)
                 print(f"\n[k-means] ARI(high-D clusters vs labels) = "
                       f"{kmeans_res['high_d']['ari_vs_labels']:.3f} -> "
                       f"classes {'ARE' if kmeans_res['classes_are_clusters'] else 'are NOT'} clusters")
@@ -188,7 +192,8 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
             if do_relmetrics:
                 _adj, _W = build_knn_graph(X_high, k=rel_k)
                 _pr = precision_recall_fscore(_adj, _W, y, alpha=rel_alpha, beta=rel_beta)
-                rel_res = {"global": _pr["global"], "per_label": _pr["per_label"],
+                rel_res = {"global": _pr["global"], "global_micro": _pr["global_micro"],
+                           "per_label": _pr["per_label"],
                            "k": rel_k, "alpha": rel_alpha, "beta": rel_beta,
                            "target_names": target_names}
                 g = _pr["global"]
@@ -212,6 +217,40 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
             verdict_res = compare_methods(X_high, proj, errs, fps, fns, y,
                                           k=neighbors, kmeans=kmeans_res)
             print(f"\n[verdict] {verdict_res['verdict']}")
+            # --- MDS variability: the bootstrap CI captures per-point variation
+            # for ONE pair of layouts, not MDS's run-to-run stochasticity. Re-run
+            # MDS a few times with different seeds, recompute the MDS fidelity
+            # component each time, and report the spread so "decisive" can be read
+            # in the light of how much the layout itself wobbles. ---
+            try:
+                from sklearn.manifold import MDS as _MDS
+                from sklearn.metrics import pairwise_distances as _pd
+                base_fid = 1.0 - float(np.mean(np.abs(fps["MDS"]) + np.abs(fns["MDS"])))
+                Xs_for_mds = X_high
+                D_high = _pd(Xs_for_mds)
+                fids = [base_fid]
+                for seed in range(1, 4):          # 3 extra layouts
+                    m = _MDS(n_components=2, dissimilarity="precomputed",
+                             random_state=seed, n_init=1, normalized_stress="auto")
+                    xy = m.fit_transform(D_high)
+                    _e, _fp, _fn = compute_errors(
+                        {"MDS": xy}, X_high, y, metric=metric, k=neighbors,
+                        class_aware=class_aware, weight=weight,
+                        adaptive=adaptive, return_parts=True)
+                    fids.append(1.0 - float(np.mean(np.abs(_fp["MDS"]) + np.abs(_fn["MDS"]))))
+                verdict_res["mds_stability"] = {
+                    "fidelity_mean": round(float(np.mean(fids)), 4),
+                    "fidelity_std": round(float(np.std(fids)), 4),
+                    "fidelity_min": round(float(np.min(fids)), 4),
+                    "fidelity_max": round(float(np.max(fids)), 4),
+                    "n_layouts": len(fids),
+                    "margin": verdict_res.get("margin_absolute"),
+                }
+                _sd = verdict_res["mds_stability"]["fidelity_std"]
+                print(f"[verdict] MDS fidelity across {len(fids)} layouts: "
+                      f"{np.mean(fids):.3f} +/- {_sd:.3f}")
+            except Exception as se:
+                print(f"[verdict] MDS stability skipped ({se})")
         except Exception as ve:
             print(f"[verdict] skipped ({ve})")
 
@@ -224,6 +263,28 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     console = buf.getvalue() + f"\n[done] pipeline finished in {elapsed:.2f}s"
 
     classes, counts = np.unique(y, return_counts=True)
+    # --- k/n degeneracy guard ---
+    # The rank normaliser W = k(2n-3k-1)/2 requires k < (2n-1)/3; well before
+    # that hard limit, a k that is a large fraction of n makes almost every 2-D
+    # neighbourhood pull in unrelated points (heavy FP) while extrusion is
+    # suppressed, so the signed-error balance degenerates toward 100% FP and the
+    # colour scale loses contrast. Warn so the result is not silently misread.
+    n_now = int(X.shape[0])
+    ratio = neighbors / max(1, n_now)
+    hard_limit = (2 * n_now - 1) / 3.0
+    warnings = []
+    if neighbors >= hard_limit:
+        warnings.append({"level": "error", "code": "k_over_limit",
+            "message": (f"k = {neighbors} is at/above the metric's limit for "
+                        f"n = {n_now} (needs k < {hard_limit:.0f}). Results are "
+                        f"degenerate; reduce k or raise the sample size.")})
+    elif ratio >= 0.15:
+        warnings.append({"level": "warning", "code": "k_over_n",
+            "message": (f"k = {neighbors} is {ratio*100:.0f}% of n = {n_now}. Above "
+                        f"~15% the intrusion/extrusion balance skews heavily toward "
+                        f"false positives and the colour scale loses contrast. "
+                        f"Consider k \u2264 {int(0.15*n_now)} or a larger sample.")})
+
     info = {
         "name": name,
         "n_samples": int(X.shape[0]),
@@ -235,6 +296,8 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
             for c, n in zip(classes, counts)],
         "standardized": standardize,
         "elapsed": round(elapsed, 3),
+        "k_over_n_ratio": round(ratio, 3),
+        "warnings": warnings,
     }
 
     fname = build_fname_tag(name, metric, neighbors, geometric,
@@ -362,16 +425,27 @@ def _centroid_trajectories(X_high: np.ndarray, pca_2d: np.ndarray,
 def _report_untrustworthy(pca_err, mds_err, labels, target_names, ids, thresh,
                           pca_fp, pca_fn, mds_fp, mds_fn) -> list[dict]:
     """Print the untrustworthy report (for the console) and return its rows."""
-    mask = (np.abs(pca_err) > thresh) | (np.abs(mds_err) > thresh)
-    sel = np.where(mask)[0]
+    # A point is "untrustworthy" when the projection asserts a FALSE CLOSENESS,
+    # i.e. an INTRUSION (error > +thresh): points drawn together in 2-D that are
+    # actually far apart -- these mislead the analyst into seeing structure that
+    # is not there. A large NEGATIVE error is an EXTRUSION (a true neighbour
+    # pushed away): a loss of information, but not a false claim, and on cleanly
+    # separated data these dominate |error| while being mostly benign. Flagging
+    # on |error| would therefore select the WRONG points. We flag intrusions as
+    # the untrustworthy set and report extrusions separately.
+    intr = (pca_err > thresh) | (mds_err > thresh)
+    extr = ((pca_err < -thresh) | (mds_err < -thresh)) & ~intr
+    sel = np.where(intr)[0]
+    ext_sel = np.where(extr)[0]
     print("\n" + "=" * 60)
-    print(f"UNTRUSTWORTHY POINTS  (|error| > {thresh} in PCA or MDS)")
+    print(f"UNTRUSTWORTHY POINTS  (false closeness: error > +{thresh} in PCA or MDS)")
     print("=" * 60)
-    print(f"Count: {len(sel)}")
+    print(f"Count: {len(sel)}   (+ {len(ext_sel)} extrusion-only points, error < -{thresh})")
     rows = []
     for i in sel:
         rows.append({
             "index": int(ids[i]),
+            "kind": "false closeness",
             "true_class": target_names[labels[i]] if labels[i] < len(target_names)
                           else str(labels[i]),
             "pca_error": round(float(pca_err[i]), 3),

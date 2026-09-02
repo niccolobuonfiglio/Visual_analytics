@@ -1245,3 +1245,17 @@ select.inp{
 .wmds-down{ background:rgba(224,165,75,0.13); color:var(--live); border-color:rgba(224,165,75,0.36); }
 .wmds-note{ font-size:11.5px; color:var(--ink-dim); line-height:1.45; margin-bottom:10px; }
 .wmds-note strong{ color:var(--ink); }
+
+/* parameter-degeneracy warnings under the stat bar */
+#runWarnings{ margin:10px 0 0; display:flex; flex-direction:column; gap:6px; }
+.run-warn{ display:flex; align-items:flex-start; gap:9px; padding:9px 12px;
+  border-radius:8px; font-size:12px; line-height:1.4; }
+.run-warn-warning{ background:rgba(224,165,75,0.10); border:1px solid rgba(224,165,75,0.32); color:#f0c98a; }
+.run-warn-error{ background:rgba(210,75,82,0.12); border:1px solid rgba(210,75,82,0.4); color:#e8969b; }
+.run-warn-icon{ font-size:13px; flex:none; }
+
+/* feature-weight bar chart in the weighted-MDS comparison */
+.wmds-weights-wrap{ margin-top:10px; }
+.wmds-weights-label{ font-size:11px; color:var(--ink-dim); margin-bottom:4px; }
+/* near-zero selector: emphasise when balanced-severe points are present */
+.es-quad-nearzero.es-quad-warn{ border-color:rgba(224,165,75,0.5); }

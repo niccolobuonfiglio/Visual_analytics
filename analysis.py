@@ -33,7 +33,8 @@ from typing import Optional, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, SpectralClustering
+from sklearn.mixture import GaussianMixture
 from sklearn.metrics import (adjusted_rand_score, normalized_mutual_info_score,
                              pairwise_distances, silhouette_score)
 from sklearn.neighbors import NearestNeighbors
@@ -192,10 +193,21 @@ def precision_recall_fscore(adj: list[set[int]], W: NDArray[np.float64],
         "per_point": {"precision": prec, "recall": rec, "f_score": f, "f1": f1},
         "per_label": per_label,
         "global": {
+            # MACRO: average within each class, then across classes, so a
+            # majority class cannot dominate.
             "precision": float(np.mean([v["precision"] for v in per_label.values()])),
             "recall": float(np.mean([v["recall"] for v in per_label.values()])),
             "f_score": float(np.mean([v["f_score"] for v in per_label.values()])),
             "f1": float(np.mean([v["f1"] for v in per_label.values()])),
+        },
+        "global_micro": {
+            # MICRO: pool all points equally (no per-class averaging), so a large
+            # class contributes proportionally. The macro/micro gap reveals class
+            # imbalance -- a large gap means the per-class scores differ widely.
+            "precision": float(prec.mean()),
+            "recall": float(rec.mean()),
+            "f_score": float(f.mean()),
+            "f1": float(f1.mean()),
         },
         "alpha": alpha, "beta": beta,
     }
@@ -206,7 +218,8 @@ def precision_recall_fscore(adj: list[set[int]], W: NDArray[np.float64],
 # ==========================================================================
 def kmeans_analysis(X_high: NDArray[np.float64], projections: dict,
                     labels: Sequence[int], n_clusters: Optional[int] = None,
-                    k_range: tuple[int, int] = (2, 10)) -> dict:
+                    k_range: tuple[int, int] = (2, 10),
+                    cluster_method: str = "kmeans") -> dict:
     """Cluster the data and test the 'classes are clusters' assumption.
 
     A central caveat of any label-supervised metric is that class labels
@@ -214,43 +227,71 @@ def kmeans_analysis(X_high: NDArray[np.float64], projections: dict,
     actually sees. When that happens, every supervised score is measuring
     against the wrong reference, and a projection can be blamed for "hiding"
     clusters that were never there. The remedy is to cluster the high-D space
-    with k-means -- the natural choice for the Euclidean geometry PCA and MDS
-    already assume -- and compare that clustering both to the labels and to the
-    clustering found in each 2-D projection.
+    and compare that clustering both to the labels and to the clustering found
+    in each 2-D projection.
 
-    We run k-means in three spaces -- high-D, the PCA plane and the MDS plane --
-    which yields two distinct kinds of evidence:
+    ``cluster_method`` selects the clusterer:
+
+    * ``kmeans`` (default) -- the natural choice for the Euclidean geometry PCA
+      and MDS assume, but it can only find convex, roughly isotropic clusters.
+    * ``gmm`` -- Gaussian mixture; finds elliptical clusters of differing
+      covariance, more flexible than k-means.
+    * ``spectral`` -- spectral clustering on a nearest-neighbour affinity; can
+      recover **non-convex** clusters (e.g. concentric rings) that k-means and
+      GMM cannot, removing the false "labels are not clusters" verdict on such
+      data.
+
+    We run the chosen clusterer in three spaces -- high-D, the PCA plane and the
+    MDS plane -- which yields two distinct kinds of evidence:
 
     * **ARI / NMI (clustering vs class labels) in high-D** answers "are the
       classes clusters at all?". Low agreement means a low supervised score is
       a property of the DATA, not a failure of the projection.
     * **ARI (clustering in 2-D vs clustering in high-D)** answers "does this
-      projection preserve the cluster structure?" -- computed per method, it is
-      a direct, label-free comparison of PCA against MDS.
+      projection preserve the cluster structure?" -- computed per method.
 
-    ``n_clusters`` defaults to the number of classes; if ``None`` and the class
-    count is unavailable, the best silhouette over ``k_range`` is used.
+    ``n_clusters`` defaults to the number of classes.
     """
     labels = np.asarray(labels)
     n_classes = int(len(np.unique(labels)))
     if n_clusters is None:
         n_clusters = n_classes
 
+    def _cluster(Z, k):
+        """Fit the chosen clusterer with k clusters and return labels."""
+        Z = np.asarray(Z)
+        if cluster_method == "gmm":
+            gm = GaussianMixture(n_components=k, covariance_type="full",
+                                 n_init=3, random_state=RANDOM_STATE)
+            return gm.fit_predict(Z)
+        if cluster_method == "spectral":
+            # affinity from nearest neighbours so non-convex shapes are captured;
+            # cap neighbours below the sample size
+            k_nn = int(min(10, max(2, Z.shape[0] // (k + 1))))
+            sc = SpectralClustering(n_clusters=k, affinity="nearest_neighbors",
+                                    n_neighbors=k_nn, assign_labels="kmeans",
+                                    random_state=RANDOM_STATE)
+            return sc.fit_predict(Z)
+        # default: k-means
+        km = KMeans(n_clusters=k, n_init=10, random_state=RANDOM_STATE)
+        return km.fit_predict(Z)
+
     # optional model selection by silhouette, reported for transparency
     sil_scan = []
     lo, hi = k_range
     for k in range(max(2, lo), min(hi, len(X_high) - 1) + 1):
-        km = KMeans(n_clusters=k, n_init=10, random_state=RANDOM_STATE)
-        lab = km.fit_predict(X_high)
+        try:
+            lab = _cluster(X_high, k)
+        except Exception:
+            continue
         if len(np.unique(lab)) > 1:
-            sil_scan.append({"k": k,
-                             "silhouette": float(silhouette_score(X_high, lab)),
-                             "inertia": float(km.inertia_)})
+            entry = {"k": k,
+                     "silhouette": float(silhouette_score(X_high, lab))}
+            sil_scan.append(entry)
     best_k = max(sil_scan, key=lambda r: r["silhouette"])["k"] if sil_scan else n_clusters
 
     def _fit(Z):
-        km = KMeans(n_clusters=n_clusters, n_init=10, random_state=RANDOM_STATE)
-        return km.fit_predict(Z)
+        return _cluster(Z, n_clusters)
 
     cl_high = _fit(X_high)
     out_methods = {}
@@ -284,6 +325,7 @@ def kmeans_analysis(X_high: NDArray[np.float64], projections: dict,
     return {
         "n_clusters": int(n_clusters),
         "n_classes": n_classes,
+        "cluster_method": cluster_method,
         "best_k_by_silhouette": int(best_k),
         "silhouette_scan": sil_scan,
         "high_d": {
@@ -383,23 +425,35 @@ def simulated_annealing_k(objective, k_lo: int, k_hi: int,
         return cache[k]
 
     # --- probe to calibrate the temperature to the objective's own scale ---
-    probes = np.unique(np.linspace(k_lo, k_hi, max(2, n_probe)).round().astype(int))
+    # Probe densely so a few unlucky samples cannot mislead the calibration
+    # (a low-spread probe set was the root cause of premature convergence: it
+    # produced a tiny T0 and the search froze in a local corner).
+    n_probe = max(n_probe, min(9, k_hi - k_lo + 1))
+    probes = np.unique(np.linspace(k_lo, k_hi, n_probe).round().astype(int))
     pv = [f(int(k)) for k in probes]
     if t0 is None:
-        spread = float(np.std(pv))
-        if spread <= 0:
-            spread = float(np.ptp(pv))          # all-equal probes -> use range
-        t0 = spread if spread > 0 else 1.0
-    t_min = max(t0 * t_min_frac, 1e-12)
+        # base T0 on the full observed RANGE of the probes (not just the std),
+        # and floor it, so a flat-looking probe set still permits exploration
+        rng_obs = float(np.ptp(pv))
+        std_obs = float(np.std(pv))
+        t0 = max(std_obs, 0.5 * rng_obs)
+        if t0 <= 0:
+            t0 = 1.0
+    t_min = max(t0 * t_min_frac, 1e-9)
 
     gamma = (t_min / t0) ** (1.0 / max(1, n_iter - 1))
-    span = max(1, (k_hi - k_lo) // 4)
+    # initial proposal reach spans a large fraction of the WHOLE range, so early
+    # moves can traverse from one end to the other (a quarter-range cap could
+    # never reach a far optimum)
+    span = max(1, (k_hi - k_lo) // 2)
 
     cur = int(probes[int(np.argmax(pv))])       # start from the best probe
     cur_v = f(cur)
     best, best_v = cur, cur_v
     T = t0
     trace, uphill = [], 0
+    stall = 0                                   # iterations since best improved
+    reheats = 0
     for it in range(n_iter):
         # proposal width shrinks with temperature: broad early, fine late
         width = max(1, int(round(span * (T / t0))))
@@ -416,6 +470,19 @@ def simulated_annealing_k(objective, k_lo: int, k_hi: int,
             cur, cur_v = cand, cand_v
             if cur_v > best_v:
                 best, best_v = cur, cur_v
+                stall = 0
+            else:
+                stall += 1
+        else:
+            stall += 1
+        # --- REHEAT on stall: if the best has not improved for a while, warm
+        # the temperature back up and jump to the best, so the search takes a
+        # fresh exploratory pass instead of dying in a local optimum ---
+        if stall >= max(6, n_iter // 6) and it < n_iter - 2:
+            T = max(T, 0.5 * t0)
+            cur, cur_v = best, best_v
+            stall = 0
+            reheats += 1
         trace.append({"iter": it, "T": round(T, 6), "k": cand,
                       "score": round(cand_v, 6), "accepted": bool(accept),
                       "uphill": bool(accept and delta < 0),
@@ -424,7 +491,7 @@ def simulated_annealing_k(objective, k_lo: int, k_hi: int,
 
     return {"best_k": int(best), "best_score": float(best_v), "trace": trace,
             "n_evaluations": len(cache), "t0": float(t0),
-            "uphill_moves_accepted": int(uphill),
+            "uphill_moves_accepted": int(uphill), "reheats": int(reheats),
             "cache": {int(k): float(v) for k, v in sorted(cache.items())}}
 
 
@@ -442,13 +509,17 @@ def optimise_relationship_k(X_high: NDArray[np.float64], labels: Sequence[int],
     def obj(k: int) -> float:
         adj, W = build_knn_graph(X_high, k=int(k))
         return precision_recall_fscore(adj, W, labels, alpha=alpha,
-                                       beta=beta)["global"]["f_score"]
+                                       beta=beta)["global"]["f1"]
 
     res = simulated_annealing_k(obj, k_lo, k_hi, n_iter=n_iter)
     adj, W = build_knn_graph(X_high, k=res["best_k"])
     res["metrics_at_best"] = precision_recall_fscore(
         adj, W, labels, alpha=alpha, beta=beta)["global"]
     res["alpha"], res["beta"] = alpha, beta
+    # true size of an exhaustive scan over the SAME range, so the UI reports
+    # "N / exhaustive_count" honestly instead of a hard-coded constant
+    res["k_lo"], res["k_hi"] = int(k_lo), int(k_hi)
+    res["exhaustive_count"] = int(k_hi - k_lo + 1)
     return res
 
 
