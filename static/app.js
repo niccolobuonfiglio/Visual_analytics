@@ -66,7 +66,129 @@ async function init(){
   bindTabs();
   bindConsole();
   bindVerdictUi();
+  bindInfoDelegation();
+  injectInfoButtons();
   await restoreLast();
+}
+
+/* ============================================================
+   METRIC INFO SYSTEM
+   A dictionary of thorough explanations, an info modal, and a helper that turns
+   any section title into a clickable info trigger (title + an (i) button).
+   ============================================================ */
+const METRIC_INFO = {
+  errorspace: { title: 'Error Space',
+    body: `<p><strong>What it is.</strong> Three linked scatter plots: the PCA projection and the MDS projection on top, and below them the <em>error space</em> — a scatter of each point's PCA error (x) against its MDS error (y).</p>
+    <p><strong>What it's useful for.</strong> It shows, per point, <em>where</em> each projection is wrong, <em>in which direction</em>, and <em>how much</em> — and whether the two methods agree. This is a <em>projection</em> diagnostic: it measures the picture, not the data.</p>
+    <p><strong>How it works.</strong> Each point carries two channels: <em>colour</em> is the severity-weighted signed error on a false-negative → true → false-positive scale (red = the projection lost real neighbours, blue = it invented false ones); <em>size</em> is the total distortion |FP| + |FN|. A big pale point is badly distorted in both directions at once (they cancel to ~0 net); a small pale point is genuinely faithful — colour alone can't tell them apart, so always read size too. Position in the error space encodes the sign combination: the four quadrants are both-FP, both-FN, and the two mixed cases where the methods disagree.</p>` },
+  fidelity: { title: 'Intrusion / Extrusion Fidelity',
+    body: `<p><strong>What it is.</strong> A per-point measure of how faithfully a 2-D projection preserves each point's high-dimensional neighbourhood, on a signed scale in [−1, +1].</p>
+    <p><strong>What it's useful for.</strong> It localises and signs projection error. A <em>false positive</em> (intrusion, +) means the projection pulled a stranger close; a <em>false negative</em> (extrusion, −) means it pushed a true neighbour away.</p>
+    <p><strong>How it works.</strong> For neighbourhood size k, each point's neighbours are ranked by distance in both the high-D space and the 2-D projection. An intruder is inside the 2-D k-neighbourhood but not the high-D one; an extruded point is the reverse. Each offender is weighted by how many rank positions it is displaced, normalised to [0,1]. The signed error is FP − FN. By default the metric is <em>geometric</em> (label-free); turning on class-aware restricts it to cross-class intrusions and same-class extrusions.</p>` },
+  verdict: { title: 'PCA vs MDS Verdict',
+    body: `<p><strong>What it is.</strong> A single mechanical judgement of which projection is more faithful on this dataset, and how confidently.</p>
+    <p><strong>What it's useful for.</strong> It answers "which projection should I trust here?" with a confidence statement — and declines to decide when the evidence is thin, rather than over-claiming.</p>
+    <p><strong>How it works.</strong> It combines four independent criteria, each scored 0–1: <em>fidelity</em> (weight 0.40, the per-point distortion), <em>trustworthiness</em> and <em>continuity</em> (0.20 each, classical rank-preservation), and <em>cluster preservation</em> (0.20, how well each 2-D k-means partition matches the high-D one). The weights are stated, not tuned. Because both methods are scored on the same points, a paired bootstrap 95% confidence interval and Cohen's d are computed on the per-point distortion gap; the winner is "decisive" only if that interval excludes zero and the margin clears a threshold.</p>` },
+  confidence: { title: 'Confidence Interval (bootstrap)',
+    body: `<p><strong>What it is.</strong> A plot of the mean per-point distortion gap between the two methods (loser − winner) with its 95% bootstrap confidence interval.</p>
+    <p><strong>What it's useful for.</strong> It shows whether the verdict's margin is <em>statistically real</em> or could be noise. A margin alone can't tell you that.</p>
+    <p><strong>How it works.</strong> The per-point distortion differences are resampled with replacement 2000 times; the 2.5th–97.5th percentiles of the resampled mean form the interval. If the whole interval sits on one side of zero, the win is reliable (green); if it crosses zero, the difference is provisional (amber).</p>` },
+  components: { title: 'Verdict Component Scores',
+    body: `<p><strong>What it is.</strong> The four criteria behind the verdict — fidelity, trust, continuity, cluster — shown for both PCA and MDS.</p>
+    <p><strong>What it's useful for.</strong> It reveals <em>why</em> a method won, and when the criteria disagree (one method wins some, the other wins others) — which is exactly when the verdict is correctly not decisive.</p>
+    <p><strong>How it works.</strong> Each component is normalised to [0,1] (higher is better). The composite is their weighted sum (0.40 / 0.20 / 0.20 / 0.20). The bar chart plots all four for each method side by side.</p>` },
+  histograms: { title: 'Error Distribution (histograms)',
+    body: `<p><strong>What it is.</strong> The distribution of signed per-point error for each method, as a histogram tinted by the error scale.</p>
+    <p><strong>What it's useful for.</strong> It reveals the <em>shape</em> of a method's errors that the mean hides — a narrow peak at zero (faithful) vs a broad spread (heavily distorted), and whether errors lean red (extrusion) or blue (intrusion).</p>
+    <p><strong>How it works.</strong> Errors are binned over a fixed range; a median line and ±2σ lines (over occupied bins) frame how uneven the distribution is. Because it uses the signed error, balanced-severe points sit near zero here too — read it alongside the Error Space size channel.</p>` },
+  centroids: { title: 'Centroid Trajectories',
+    body: `<p><strong>What it is.</strong> Each class centroid traced across three stages — high-D → PCA → MDS — on a shared normalised frame.</p>
+    <p><strong>What it's useful for.</strong> It separates <em>coarse</em> distortion (how the overall class configuration moves) from the <em>local</em> distortion the per-point metric captures. It shows which method pulls classes apart or compresses them.</p>
+    <p><strong>How it works.</strong> High-D centroids are projected via their own PCA so all three stages share a plane; each stage is centred and scaled to unit RMS radius, so the trajectory shows shape change, not absolute size. The mean between-centroid distance per stage indicates whether class separation is preserved.</p>` },
+  weightedmds: { title: 'Weighted MDS',
+    body: `<p><strong>What it is.</strong> An MDS layout in which each feature is scaled by its mutual information with the class label before distances are computed.</p>
+    <p><strong>What it's useful for.</strong> Ordinary MDS lets noisy or redundant features dominate the geometry as much as informative ones. Weighting is a controlled experiment: "what would the layout look like if the class-informative measurements counted more?" It is most useful on data with many irrelevant features.</p>
+    <p><strong>How it works.</strong> Each feature j is multiplied by √(weight_j), then MDS is built from the resulting weighted-Euclidean distances. Crucially, <em>only the MDS panel changes</em> — PCA and the high-D fidelity reference stay unweighted, so the error colours still measure true-geometry distortion. The comparison shows the plain and weighted layouts side by side with the change in class silhouette.</p>` },
+  kmeans: { title: 'k-means Ground-Truth Check',
+    body: `<p><strong>What it is.</strong> An unsupervised clustering of the data, compared against the class labels. This is a <em>data</em> diagnostic, not a projection one.</p>
+    <p><strong>What it's useful for.</strong> Every label-based score assumes the labels <em>are</em> the cluster structure. This check asks whether that's true — so an apparent "projection error" isn't really a mismatch between the labels and the data's natural groups.</p>
+    <p><strong>How it works.</strong> The chosen clusterer (k-means, or GMM / spectral for non-convex data) is fit in the high-D space and both projections. ARI vs labels answers "are the classes clusters?"; a Hungarian-matched accuracy makes that interpretable; ARI 2-D-vs-high-D answers "does each projection preserve the partition?". A low ARI can mean bad labels <em>or</em> (for k-means) non-convex clusters — cross-check with precision.</p>` },
+  confusion: { title: 'Cluster vs Class Confusion Heatmap',
+    body: `<p><strong>What it is.</strong> A contingency table: each cell counts the points in a high-D cluster (row) that carry a given class label (column).</p>
+    <p><strong>What it's useful for.</strong> It shows exactly how clusters and labels line up. A clean result is block-diagonal — each cluster dominated by one class.</p>
+    <p><strong>How it works.</strong> <em>Cluster purity</em> = the largest count in a row ÷ that row's total (how single-class each cluster is). <em>Class coverage</em> = the largest count in a column ÷ that column's total (how much of each class landed in one cluster). High purity <em>and</em> coverage means labels and geometry agree.</p>` },
+  silhouette: { title: 'Silhouette by Cluster Count',
+    body: `<p><strong>What it is.</strong> The silhouette score of the clustering as the number of clusters k is varied.</p>
+    <p><strong>What it's useful for.</strong> It reveals how many groups the geometry naturally supports. If that differs from your class count, the labels may split or merge the natural groups.</p>
+    <p><strong>How it works.</strong> Silhouette (−1 to +1) compares each point's average distance to its own cluster against the nearest other cluster: near +1 = tight, well-separated clusters; near 0 = overlapping; negative = points likely in the wrong cluster. The peak marks the most natural number of clusters (green); your class count is marked red.</p>` },
+  clustermetrics: { title: 'Cluster-Structure Metrics (precision / recall / F1)',
+    body: `<p><strong>What it is.</strong> Supervised precision, recall and F1 computed on a k-nearest-neighbour similarity graph over the high-D points. A <em>data</em> diagnostic.</p>
+    <p><strong>What it's useful for.</strong> It measures whether the class structure is genuinely present in the data, independent of any projection. A low score is a property of the data, not the picture.</p>
+    <p><strong>How it works.</strong> <em>Precision</em> asks whether a point is surrounded by its own class (weighted by edge strength); <em>recall</em> asks whether each class holds together (its strictness set by α); <em>F1</em> is their harmonic mean. Global scores are macro-averaged (per class) with a micro (pooled) figure alongside; the gap between them reveals class imbalance.</p>` },
+  radar: { title: 'Per-Class Radar',
+    body: `<p><strong>What it is.</strong> One small radar per class, plotting its precision, recall and F1.</p>
+    <p><strong>What it's useful for.</strong> It shows each class's strengths and weaknesses individually — which classes are hard, and <em>how</em> they're hard.</p>
+    <p><strong>How it works.</strong> A balanced triangle means the class is precise <em>and</em> cohesive. A spike toward one axis shows the weakness: high precision but low recall = the class is pure but fragmented; the reverse = cohesive but impure.</p>` },
+  annealing: { title: 'Simulated Annealing (neighbourhood search)',
+    body: `<p><strong>What it is.</strong> A search for the neighbourhood size k that maximises the cluster-structure F1, since F1(k) is bumpy and has several local optima.</p>
+    <p><strong>What it's useful for.</strong> It makes an otherwise-arbitrary parameter principled and data-driven, cheaply (touching far fewer values than an exhaustive scan).</p>
+    <p><strong>How it works.</strong> From the current k it proposes a nearby value and accepts it if better, or — with a probability that falls as the "temperature" cools — even if worse, which lets it escape local optima. The best-F1 line only ever rises and should plateau; proposed-k should bounce early then settle; accepted worsening moves cluster early and thin out. A temperature panel shows the cooling schedule, and a health check flags a search that's stuck (best flatlines), under-cooled (still rising at the end), or too greedy (no worsening moves).</p>` },
+  untrustworthy: { title: 'Untrustworthy Points',
+    body: `<p><strong>What it is.</strong> The points a projection asserts a <em>false closeness</em> for — intrusions where the 2-D layout draws together points that are actually far apart in high-D.</p>
+    <p><strong>What it's useful for.</strong> These are the genuinely misleading points: a cluster you see among them may be an artifact. (Lost neighbours — extrusions — are a loss of information but not a false claim, and are listed separately.)</p>
+    <p><strong>How it works.</strong> A point is flagged when its error exceeds +threshold (an intrusion) in either projection. Each row decomposes into FP (intrusion) and FN (extrusion) for both methods, so you can see which method distorts it and how.</p>` },
+  adaptivek: { title: 'Adaptive k',
+    body: `<p><strong>What it is.</strong> A per-point neighbourhood size driven by local density, instead of one global k.</p>
+    <p><strong>What it's useful for.</strong> A single k is too coarse in dense regions and too noisy in sparse ones. Adaptive k gives each point a neighbourhood sized to its surroundings, so the fidelity metric is fair across regions of differing density.</p>
+    <p><strong>How it works.</strong> Each point's local radius (its distance to its nearest neighbours) is mapped through the population median so the median-density point keeps the slider's k; dense points get a smaller k, sparse points a larger one, clamped to a sensible range. The indicator by the slider shows the resulting min / median / max k.</p>` },
+};
+
+function openInfoModal(key){
+  const info = METRIC_INFO[key]; if(!info) return;
+  $('infoTitle').textContent = info.title;
+  $('infoBody').innerHTML = info.body;
+  $('infoModal').hidden = false;
+}
+function closeInfoModal(){ $('infoModal').hidden = true; }
+
+/** Build a section header (h4) whose title and (i) button open the info modal. */
+function infoHeader(key, labelHtml){
+  const info = METRIC_INFO[key];
+  const label = labelHtml || (info ? info.title : key);
+  return `<h4 class="info-h"><button class="info-title" data-info="${key}">${label}</button>`+
+    `<button class="info-btn" data-info="${key}" aria-label="What is this?" title="What is this?">i</button></h4>`;
+}
+/** Delegated click handler: any [data-info] opens the modal. Bound once. */
+function bindInfoDelegation(){
+  document.addEventListener('click', (e)=>{
+    const t = e.target.closest('[data-info]');
+    if(t){ openInfoModal(t.dataset.info); }
+  });
+  const c = $('infoClose'), d = $('infoDone'), ov = $('infoModal');
+  if(c) c.addEventListener('click', closeInfoModal);
+  if(d) d.addEventListener('click', closeInfoModal);
+  if(ov) ov.addEventListener('click', (e)=>{ if(e.target===ov) closeInfoModal(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeInfoModal(); });
+}
+
+/** Turn every element tagged data-info-title into a clickable info trigger and
+ *  append a small (i) button after it. Runs once at startup over static markup. */
+function injectInfoButtons(){
+  document.querySelectorAll('[data-info-title]').forEach(el=>{
+    const key = el.getAttribute('data-info-title');
+    if(!METRIC_INFO[key] || el.dataset.infoWired) return;
+    el.dataset.infoWired = '1';
+    el.classList.add('has-info');
+    el.setAttribute('data-info', key);           // make the title itself open the modal
+    // append an (i) button right after the title element
+    const btn = document.createElement('button');
+    btn.className = 'info-btn';
+    btn.setAttribute('data-info', key);
+    btn.setAttribute('aria-label', 'What is this?');
+    btn.setAttribute('title', 'What is this?');
+    btn.textContent = 'i';
+    el.insertAdjacentElement('afterend', btn);
+  });
 }
 
 /* verdict banner + modal button wiring */
@@ -77,11 +199,11 @@ function bindVerdictUi(){
         goto = $('vmGotoTab');
   if(close) close.addEventListener('click', closeVerdictModal);
   if(done) done.addEventListener('click', closeVerdictModal);
-  if(goto) goto.addEventListener('click', ()=>{ closeVerdictModal(); activateTab('verdict'); });
+  if(goto) goto.addEventListener('click', ()=>{ closeVerdictModal(); activateTab('projquality'); });
   if(overlay) overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeVerdictModal(); });
   document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeVerdictModal(); });
   const lbExamine = $('lbExamine');
-  if(lbExamine) lbExamine.addEventListener('click', ()=>{ activateTab('verdict'); const c=$('anKmeansCard'); if(c) c.scrollIntoView({behavior:'smooth',block:'center'}); });
+  if(lbExamine) lbExamine.addEventListener('click', ()=>{ activateTab('dataquality'); const c=$('anKmeansCard'); if(c) c.scrollIntoView({behavior:'smooth',block:'center'}); });
 }
 
 async function loadDatasets(){
@@ -382,6 +504,7 @@ function renderAll(d){
   
   // non-plot panels first so they always render even if Plotly is unavailable
   safeRender('statbar', ()=>renderStatbar(d));
+  safeRender('adaptivek', ()=>renderAdaptiveK(d));
   safeRender('signal', ()=>renderSignal(d));
   safeRender('table', ()=>renderTable(d));
   safeRender('verdict-banner', ()=>renderVerdictBanner(d));
@@ -989,6 +1112,21 @@ function renderWmdsCompare(d){
   }
 }
 
+/* Adaptive-k distribution: histogram of per-point k values, shown only when
+   adaptive k is enabled. Bins 3-5 / 6-8 / 9-12 / 13+, as percentages. */
+function renderAdaptiveK(d){
+  const mini = $('adaptkMini');
+  const akd = d.adaptive_k_dist;
+  if(!mini) return;
+  if(!akd){ mini.hidden = true; return; }
+  mini.hidden = false;
+  const vals = $('adaptkMiniVals');
+  if(vals){
+    vals.innerHTML =
+      `min <strong>${akd.k_min}</strong> · median <strong>${akd.k_median}</strong> · max <strong>${akd.k_max}</strong>`;
+  }
+}
+
 let _esQuadBound=false;
 function bindEsQuadrants(){
   if(_esQuadBound) return;      // buttons are static; bind once
@@ -1183,21 +1321,21 @@ function renderVerdictBanner(d){
     banner.classList.add('vb-tie');
     badge.textContent = 'TIE';
     headline.textContent = 'PCA and MDS are effectively tied';
-    sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} -> no meaningful difference on this dataset`;
+    sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} — no meaningful difference on this dataset`;
   } else if(p.decisive){
     banner.classList.add('vb-decisive');
     badge.textContent = p.winner;
     headline.innerHTML = `<strong>${p.winner}</strong> is the more faithful projection`;
-    sub.textContent = `decisive -> composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}, ${p.relpct.toFixed(1)}% relative), 95% CI excludes zero`;
+    sub.textContent = `decisive — composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}, ${p.relpct.toFixed(1)}% relative), 95% CI excludes zero`;
   } else {
     banner.classList.add('vb-soft');
     badge.textContent = p.winner;
     headline.innerHTML = `<strong>${p.winner}</strong> leads, but not decisively`;
-    sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}) -> the confidence interval straddles zero, so treat as provisional`;
+    sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}) — the confidence interval straddles zero, so treat as provisional`;
   }
 }
 
-const fmt3 = (x)=> (x==null||isNaN(x)) ? ' ' : (x>=0? x.toFixed(3) : x.toFixed(3));
+const fmt3 = (x)=> (x==null||isNaN(x)) ? '—' : (x>=0? x.toFixed(3) : x.toFixed(3));
 const sgn3 = (x)=> (x>=0?'+':'') + x.toFixed(3);
 
 /* DATA & LABELS verdict: do the class labels describe the data's structure?
@@ -1222,7 +1360,7 @@ function renderLabelsBanner(d){
   else if(ari >= 0.4) tier = 'partial';
   else tier = 'poor';
 
-  const ariStr = ari!=null ? ari.toFixed(2) : '->';
+  const ariStr = ari!=null ? ari.toFixed(2) : '—';
   const silNote = (silK!=null && nCls!=null && silK!==nCls)
     ? ` The data looks like it has ${silK} natural group${silK>1?'s':''}, not ${nCls}.`
     : (silK!=null ? ` The data's natural group count (${silK}) matches your ${nCls} labels.` : '');
@@ -1259,7 +1397,7 @@ function componentBars(pm){
     html += `<tr><td class="an-comp-name">${c}</td>`;
     methods.forEach((m,i)=>{
       const val = vals[i];
-      if(val==null){ html += '<td>:</td>'; return; }
+      if(val==null){ html += '<td>—</td>'; return; }
       const isBest = Math.abs(val-best)<1e-9;
       html += `<td class="${isBest?'an-best':''}">${val.toFixed(3)}</td>`;
     });
@@ -1294,7 +1432,27 @@ function renderVerdictCard(d){
   chip.textContent = p.tie ? 'tie' : (p.decisive ? 'decisive' : 'provisional');
   chip.className = 'an-chip ' + (p.decisive ? 'an-chip-good' : (p.tie ? 'an-chip-quiet' : 'an-chip-warn'));
   body.innerHTML = `<p class="an-verdict-sentence">${v.verdict}</p>`;
-  comp.innerHTML = '<h4>How the four criteria voted</h4>' + componentBars(v.per_method);
+  // SIMPLIFIED: headline (above) + component bar chart + confidence-interval plot
+  // are always visible; the detailed table, weight sliders and long-form
+  // confidence/MDS notes live in a collapsible <details> section below.
+  comp.innerHTML =
+    infoHeader('components', 'Component scores') +
+    '<div class="plot" id="verdictBars" style="height:200px"></div>' +
+    infoHeader('confidence', 'Is the difference statistically real?') +
+    '<p class="an-note" style="margin-bottom:6px">The dot is the mean per-point distortion gap between the two methods (loser &minus; winner); the bar is the 95% bootstrap confidence interval. <strong>If the whole bar sits to one side of the dashed zero line, the win is reliable</strong> (green); if it crosses zero, the difference is provisional (amber).</p>' +
+    '<div class="plot" id="verdictCI" style="height:130px"></div>' +
+    '<details class="verdict-details"><summary>Show detailed breakdown &amp; weight controls</summary>' +
+      '<div class="verdict-details-body">' +
+        '<h4>How the four criteria voted</h4>' + componentBars(v.per_method) +
+        '<div class="wtsliders" id="wtSliders">'+
+          '<h4>Adjust the weights <span class="an-subtle">recomputes live</span></h4>'+
+          wtSliderRow('fidelity', 0.40) + wtSliderRow('trust', 0.20) +
+          wtSliderRow('continuity', 0.20) + wtSliderRow('cluster', 0.20) +
+          '<div class="wt-live" id="wtLive"></div>'+
+        '</div>'+
+        '<div class="an-note" id="anVerdictDetailNote"></div>'+
+      '</div>' +
+    '</details>';
   let noteHtml =
     `<strong>Confidence.</strong> Effect size (Cohen's d) = ${fmt3(p.d)}; ` +
     `95% bootstrap CI on the per-point distortion gap = [${sgn3(p.ci[0])}, ${sgn3(p.ci[1])}]. ` +
@@ -1313,7 +1471,128 @@ function renderVerdictCard(d){
         ? `This spread is smaller than the verdict margin, so the result is robust to MDS's randomness.`
         : `This spread is comparable to the verdict margin, so treat a close verdict with caution &mdash; a different MDS layout could shift it.`);
   }
-  note.innerHTML = noteHtml;
+  // the long-form note now lives inside the collapsible details section
+  note.innerHTML = '';
+  const detailNote = $('anVerdictDetailNote');
+  if(detailNote) detailNote.innerHTML = noteHtml;
+  renderVerdictCharts(d);
+  bindWeightSliders(d);
+}
+
+/* one weight slider row */
+function wtSliderRow(name, def){
+  return `<label class="wt-row">`+
+    `<span class="wt-name">${name}</span>`+
+    `<input type="range" class="wt-slider" data-wt="${name}" min="0" max="1" step="0.05" value="${def}">`+
+    `<span class="wt-val" id="wtval-${name}">${def.toFixed(2)}</span></label>`;
+}
+
+/* recompute the composite verdict on the frontend as weights change */
+function bindWeightSliders(d){
+  const box = $('wtSliders'); if(!box) return;
+  const v = d.verdict; if(!v || !v.per_method) return;
+  const recompute = ()=>{
+    const w = {};
+    box.querySelectorAll('.wt-slider').forEach(s=>{ w[s.dataset.wt] = parseFloat(s.value); });
+    box.querySelectorAll('.wt-slider').forEach(s=>{
+      const el = $(`wtval-${s.dataset.wt}`); if(el) el.textContent = parseFloat(s.value).toFixed(2);
+    });
+    const total = Object.values(w).reduce((a,b)=>a+b,0) || 1;
+    const pm = v.per_method, methods = Object.keys(pm);
+    const scores = {};
+    methods.forEach(m=>{
+      let s = 0;
+      Object.keys(w).forEach(c=>{
+        const cv = pm[m].components && pm[m].components[c]!=null ? pm[m].components[c] : 0;
+        s += cv * w[c];
+      });
+      scores[m] = s / total;
+    });
+    // determine winner and margin under the new weights
+    const ranked = methods.slice().sort((a,b)=>scores[b]-scores[a]);
+    const win = ranked[0], lose = ranked[ranked.length-1];
+    const margin = scores[win] - scores[lose];
+    const live = $('wtLive');
+    if(live){
+      const origWin = v.winner;
+      const flipped = win !== origWin;
+      live.innerHTML =
+        `Under these weights: <strong>${win}</strong> ${methods.length>1?`(${scores[win].toFixed(3)}) vs ${lose} (${scores[lose].toFixed(3)})`:''}, `+
+        `margin ${margin>=0?'+':''}${margin.toFixed(3)}. `+
+        (flipped ? `<span class="wt-flip">⚠ the winner flipped from ${origWin}</span>`
+                 : `<span class="wt-same">same winner as the stated weights</span>`)+
+        `<button class="ghost-btn ghost-btn-sm" id="wtReset">Reset to stated weights</button>`;
+      const rb = $('wtReset');
+      if(rb) rb.addEventListener('click', ()=>{
+        const defs = {fidelity:0.40, trust:0.20, continuity:0.20, cluster:0.20};
+        box.querySelectorAll('.wt-slider').forEach(s=>{ s.value = defs[s.dataset.wt]; });
+        recompute();
+      });
+    }
+    // update the grouped bar chart to reflect... (bars show component scores,
+    // which don't change with weights, so we leave them; the live line is the
+    // weight-dependent readout)
+  };
+  box.querySelectorAll('.wt-slider').forEach(s=> s.addEventListener('input', recompute));
+  recompute();
+}
+
+/* Grouped component bar chart (PCA vs MDS) + confidence-interval plot. */
+function renderVerdictCharts(d){
+  if(typeof Plotly==='undefined') return;
+  const v = d.verdict; if(!v) return;
+  const pm = v.per_method;
+  const methods = Object.keys(pm);
+  const comps = ['fidelity','trust','continuity','cluster'];
+  const present = comps.filter(c => methods.some(m => pm[m].components && pm[m].components[c]!=null));
+
+  // --- grouped bar chart: four components x two methods ---
+  const bars = $('verdictBars');
+  if(bars){
+    const methodColor = {PCA:'#3f7cc4', MDS:'#e0a54b'};
+    const traces = methods.map(m=>({
+      type:'bar', name:m, x:present,
+      y: present.map(c=> pm[m].components && pm[m].components[c]!=null ? pm[m].components[c] : 0),
+      marker:{color: methodColor[m] || '#7f9ab5'},
+      hovertemplate:`${m} %{x}: %{y:.3f}<extra></extra>`,
+    }));
+    Plotly.react(bars, traces, baseLayout({
+      barmode:'group',
+      xaxis:Object.assign({title:''},AXIS),
+      yaxis:Object.assign({title:'score (0–1)', range:[0,1]},AXIS),
+      showlegend:true, legend:{font:{size:10,color:'#9aa7b6'},orientation:'h',x:0,y:1.12},
+      height:220, margin:{l:48,r:14,t:24,b:30},
+    }), PLOT_CONFIG);
+  }
+
+  // --- confidence-interval plot: mean distortion gap + 95% CI ---
+  const ciDiv = $('verdictCI');
+  const ci = v.bootstrap_ci_mean_distortion_diff;
+  if(ciDiv && ci){
+    const lo = ci[0], hi = ci[1], mean = (lo+hi)/2;
+    const decisive = lo > 0 || hi < 0;               // CI excludes zero
+    const col = decisive ? '#4ec97a' : '#e0a54b';
+    // pad x-range to include zero and the interval
+    const pad = Math.max(0.01, (hi-lo)*0.4);
+    const xlo = Math.min(0, lo) - pad, xhi = Math.max(0, hi) + pad;
+    Plotly.react(ciDiv, [{
+      type:'scatter', mode:'markers', x:[mean], y:[0],
+      error_x:{type:'data', symmetric:false, array:[hi-mean], arrayminus:[mean-lo],
+        color:col, thickness:2, width:8},
+      marker:{color:col, size:14, line:{color:'#0e1116',width:1}},
+      hovertemplate:`gap ${mean.toFixed(4)} · 95% CI [${lo.toFixed(4)}, ${hi.toFixed(4)}]<extra></extra>`,
+    }], baseLayout({
+      xaxis:Object.assign({title:'mean distortion gap (loser − winner)', range:[xlo,xhi], zeroline:false},AXIS),
+      yaxis:Object.assign({showticklabels:false, range:[-1,1]},AXIS),
+      height:130, margin:{l:14,r:14,t:22,b:36},
+      shapes:[{type:'line', x0:0, x1:0, y0:-1, y1:1, line:{color:'#d24b52',width:1.5,dash:'dash'}}],
+      annotations:[
+        {x:0, y:-0.85, text:'zero (no difference)', showarrow:false, font:{size:9,color:'#d24b52'}, xanchor: (mean>=0?'left':'right'), xshift:(mean>=0?3:-3)},
+        {x:mean, y:0.82, text: decisive ? '✓ CI excludes zero — reliable' : '✗ CI crosses zero — provisional',
+         showarrow:false, font:{size:10, color:col}, xanchor:'center'},
+      ],
+    }), PLOT_CONFIG);
+  }
 }
 
 function renderAnnealCard(d){
@@ -1328,23 +1607,63 @@ function renderAnnealCard(d){
   }
   chip.textContent = `k* = ${a.best_k}`;
   const grid = a.exhaustive_count != null ? a.exhaustive_count
-             : (a.k_hi != null && a.k_lo != null ? (a.k_hi - a.k_lo + 1) : ':');
+             : (a.k_hi != null && a.k_lo != null ? (a.k_hi - a.k_lo + 1) : '—');
+  // compute acceptance rate of WORSENING proposals: of all proposals that were
+  // worse than the current point, what fraction were accepted anyway?
+  let worseProposed = 0, worseAccepted = 0, startScore = null, endBest = null;
+  if(a.trace && a.trace.length){
+    startScore = a.trace[0].best_score;
+    endBest = a.trace[a.trace.length-1].best_score;
+    let curBest = a.trace[0].score;
+    for(let i=0;i<a.trace.length;i++){
+      const t = a.trace[i];
+      // a proposal is "worse" if its score is below the running current;
+      // approximate using best_score progression + uphill flags
+      if(t.uphill){ worseProposed++; worseAccepted++; }
+    }
+    // count rejected worsening moves: iterations not accepted (score dipped, not counted as uphill)
+    for(let i=0;i<a.trace.length;i++){ if(a.trace[i].accepted===false) worseProposed++; }
+  }
+  const accRate = worseProposed>0 ? Math.round(100*worseAccepted/worseProposed) : null;
   stats.innerHTML =
     statCell('best k', a.best_k) +
-    statCell('F1 at k*', (a.best_score!=null? a.best_score.toFixed(4):':')) +
+    statCell('F1 at k*', (a.best_score!=null? a.best_score.toFixed(4):'—')) +
     statCell('evaluations', `${a.n_evaluations}`) +
     statCell('vs exhaustive', `${a.n_evaluations}/${grid}`) +
-    statCell('uphill moves', a.uphill_moves_accepted!=null?a.uphill_moves_accepted:':') +
-    statCell('start temp', a.t0!=null?a.t0.toFixed(3):':');
+    statCell('uphill accepted', a.uphill_moves_accepted!=null?a.uphill_moves_accepted:'—') +
+    statCell('worsening accept rate', accRate!=null?`${accRate}%`:'—') +
+    statCell('start temp', a.t0!=null?a.t0.toFixed(3):'—') +
+    statCell('F1 gain', (startScore!=null&&endBest!=null)?`+${(endBest-startScore).toFixed(3)}`:'—');
+
+  // self-diagnosis: healthy vs problematic search
+  let diag = '';
+  if(a.trace && a.trace.length){
+    const n = a.trace.length;
+    const improvedLate = (a.trace[n-1].best_score - a.trace[Math.floor(n*0.8)].best_score) > 1e-6;
+    const flatFromStart = Math.abs(endBest - startScore) < 1e-6;
+    const noUphill = (a.uphill_moves_accepted||0) === 0;
+    const gained = (endBest - startScore) > 1e-6;
+    const items = [];
+    // good signs
+    if(gained) items.push(`<li class="diag-good">✓ final best F1 (+${(endBest-startScore).toFixed(3)}) exceeds the start — the search improved</li>`);
+    if((a.uphill_moves_accepted||0) > 0 && !improvedLate) items.push(`<li class="diag-good">✓ it explored early (worsening moves accepted) then settled — healthy cooling</li>`);
+    // problem signs
+    if(flatFromStart) items.push(`<li class="diag-bad">✗ best F1 never improved — likely stuck in a local optimum (temperature too low)</li>`);
+    if(improvedLate) items.push(`<li class="diag-warn">⚠ best F1 was still rising at the end — may be under-cooled; consider more iterations</li>`);
+    if(noUphill && !flatFromStart) items.push(`<li class="diag-warn">⚠ no worsening moves were accepted — the search was greedy and may have missed better regions</li>`);
+    if(!items.length) items.push(`<li class="diag-good">✓ search behaved normally</li>`);
+    diag = `<div class="diag-box"><div class="diag-title">Search health</div><ul class="diag-list">${items.join('')}</ul></div>`;
+  }
+
   const reheatTxt = a.reheats ? ` It re-heated ${a.reheats} time${a.reheats>1?'s':''} after stalling, to escape local optima.` : '';
-  note.innerHTML = `<strong>Reading it.</strong> The <span style="color:#4ec97a">green line is the best F1 found so far</span> : it only ever rises and should plateau once the search converges. ` +
-    `The <span style="color:#7f9ab5">grey line is the k being tried</span>; red rings mark the ${a.uphill_moves_accepted||0} accepted <em>worsening</em> moves that let it explore.${reheatTxt} ` +
-    `It touched only <strong>${a.n_evaluations}</strong> of ${grid} possible k values.`;
-  // TWO stacked panels: best-F1 (intuitive, only rises) on top; the k-trace
-  // (proposed k + accepted-worsening rings) below.
+  note.innerHTML =
+    `<strong>What a working search looks like.</strong> The <span style="color:#4ec97a">green best-F1 line</span> is a cumulative maximum, so it <em>never decreases</em>; it should rise then plateau. The <span style="color:#7f9ab5">grey proposed-k line</span> should bounce widely early (exploration) then settle late (refinement). Red rings (accepted worsening moves) should cluster early and thin out as it cools. The final best should beat the start.${reheatTxt}` +
+    diag;
+
+  // THREE stacked panels: best-F1 (top), k-trace (middle), temperature (bottom).
   if(typeof Plotly!=='undefined' && a.trace && a.trace.length){
     const it = a.trace.map(t=>t.iter), kk = a.trace.map(t=>t.k),
-          bestF = a.trace.map(t=>t.best_score);
+          bestF = a.trace.map(t=>t.best_score), temp = a.trace.map(t=>t.T);
     const up = a.trace.filter(t=>t.uphill);
     const bestScoreLine = { type:'scatter', mode:'lines', x:it, y:bestF,
       name:'best F1 so far', xaxis:'x', yaxis:'y', line:{color:'#4ec97a',width:2.5} };
@@ -1354,13 +1673,16 @@ function renderAnnealCard(d){
     const uphill = { type:'scatter', mode:'markers', x:up.map(t=>t.iter), y:up.map(t=>t.k),
       name:'accepted worsening', xaxis:'x', yaxis:'y2',
       marker:{size:11,color:'rgba(0,0,0,0)', line:{color:'#d24b52',width:1.6}} };
-    Plotly.react(plotDiv, [bestScoreLine, proposed, uphill], baseLayout({
-      grid:{rows:2, columns:1, pattern:'independent', roworder:'top to bottom'},
-      xaxis:Object.assign({title:'iteration', anchor:'y2'},AXIS),
-      yaxis:Object.assign({title:'best F1', domain:[0.58,1.0]},AXIS),
-      yaxis2:Object.assign({title:'k tried', domain:[0.0,0.42]},AXIS),
-      showlegend:true, legend:{font:{size:9,color:'#9aa7b6'},orientation:'h',x:0,y:1.14,xanchor:'left',yanchor:'bottom'},
-      height:340, margin:{l:52,r:16,t:26,b:40},
+    const tempLine = { type:'scatter', mode:'lines', x:it, y:temp,
+      name:'temperature', xaxis:'x', yaxis:'y3', line:{color:'#c88a4a',width:1.5} };
+    Plotly.react(plotDiv, [bestScoreLine, proposed, uphill, tempLine], baseLayout({
+      grid:{rows:3, columns:1, pattern:'independent', roworder:'top to bottom'},
+      xaxis:Object.assign({title:'iteration', anchor:'y3'},AXIS),
+      yaxis:Object.assign({title:'best F1', domain:[0.71,1.0]},AXIS),
+      yaxis2:Object.assign({title:'k tried', domain:[0.38,0.63]},AXIS),
+      yaxis3:Object.assign({title:'temp (cooling)', domain:[0.0,0.28]},AXIS),
+      showlegend:true, legend:{font:{size:9,color:'#9aa7b6'},orientation:'h',x:0,y:1.1,xanchor:'left',yanchor:'bottom'},
+      height:440, margin:{l:52,r:16,t:24,b:38},
     }), PLOT_CONFIG);
   }
 }
@@ -1386,35 +1708,77 @@ function renderMetricsCard(d){
     const macroF1 = g.f1!=null?g.f1:g.f_score, microF1 = gm.f1!=null?gm.f1:gm.f_score;
     const gap = Math.abs(macroF1 - microF1);
     const gapNote = gap>0.05
-      ? ` : a gap of ${gap.toFixed(3)} indicates <strong>class imbalance</strong> (per-class scores differ widely)`
-      : ` : the small gap indicates classes score fairly evenly`;
+      ? `Because they differ by ${gap.toFixed(3)}, the classes are <strong>imbalanced or uneven</strong> &mdash; some classes score much better than others, and the small classes are pulling the macro score ${macroF1<microF1?'down':'up'}.`
+      : `They are close (gap ${gap.toFixed(3)}), so every class scores about equally well &mdash; the overall F1 is representative of each class.`;
     grid.insertAdjacentHTML('afterend',
-      `<p class="an-note" id="anMacroMicro"><strong>Macro</strong> F1 ${macroF1.toFixed(3)} `+
-      `(average within class then across, so a big class can't dominate) vs `+
-      `<strong>micro</strong> F1 ${microF1.toFixed(3)} (all points pooled)${gapNote}.</p>`);
+      `<div class="an-note macro-micro" id="anMacroMicro">`+
+      `<div class="mm-row"><span class="mm-tag mm-macro">MACRO F1 ${macroF1.toFixed(3)}</span>`+
+      `<span class="mm-desc">treats every <em>class</em> equally: average the F1 within each class, then average those &mdash; so a tiny class counts as much as a huge one.</span></div>`+
+      `<div class="mm-row"><span class="mm-tag mm-micro">MICRO F1 ${microF1.toFixed(3)}</span>`+
+      `<span class="mm-desc">treats every <em>point</em> equally: pool all points together &mdash; so large classes dominate.</span></div>`+
+      `<div class="mm-gap">${gapNote}</div>`+
+      `</div>`);
   }
   // per-class table
   const names = r.target_names || [];
   const pl = r.per_label || {};
   const keys = Object.keys(pl);
   if(keys.length){
-    let html = '<h4>Per class</h4><table class="an-comp-table"><thead><tr>'+
-      '<th>class</th><th>precision</th><th>recall</th><th>F1</th><th>n</th></tr></thead><tbody>';
-    keys.forEach(k=>{
-      const row = pl[k];
-      const nm = names[k] !== undefined ? names[k] : `class ${k}`;
-      const f1 = row.f1!=null ? row.f1 : row.f_score;
-      html += `<tr><td class="an-comp-name">${nm}</td>`+
-        `<td>${row.precision.toFixed(3)}</td><td>${row.recall.toFixed(3)}</td>`+
-        `<td class="an-best">${f1.toFixed(3)}</td><td>${row.size}</td></tr>`;
-    });
-    html += '</tbody></table>';
-    pc.innerHTML = html;
+    // one small radar per class, laid out in a responsive grid, so each class's
+    // precision/recall/F1 shape can be read individually
+    pc.innerHTML = '<h4>Per class (precision · recall · F1)</h4>'+
+      '<p class="an-note" style="margin-bottom:8px">Each class has its own radar. A '+
+      'balanced triangle means the class is precise <em>and</em> cohesive; a spike '+
+      'toward one axis shows where it is weak (e.g. high precision but low recall = '+
+      'pure but fragmented).</p>'+
+      '<div class="radar-grid" id="radarGrid"></div>';
+    const gridEl = $('radarGrid');
+    if(typeof Plotly!=='undefined' && gridEl){
+      const axes = ['precision','recall','F1'];
+      const palette = ['#3f7cc4','#e0a54b','#4ec97a','#d24b52','#9b7cc4','#5ac8c8','#c88a4a','#8a94a0','#e88a8f','#82abd8'];
+      keys.forEach((k,idx)=>{
+        const row = pl[k];
+        const f1 = row.f1!=null ? row.f1 : row.f_score;
+        const nm = names[k] !== undefined ? String(names[k]) : `class ${k}`;
+        const rvals = [row.precision, row.recall, f1];
+        const col = palette[idx % palette.length];
+        // container per class
+        const cell = window.document.createElement('div');
+        cell.className = 'radar-cell';
+        const title = window.document.createElement('div');
+        title.className = 'radar-cell-title';
+        title.textContent = `${nm} (n=${row.size})`;
+        const plotDiv = window.document.createElement('div');
+        plotDiv.className = 'radar-cell-plot';
+        plotDiv.id = `radar-${idx}`;
+        cell.appendChild(title); cell.appendChild(plotDiv);
+        gridEl.appendChild(cell);
+        Plotly.react(plotDiv, [{
+          type:'scatterpolar', mode:'lines+markers',
+          r: rvals.concat([rvals[0]]), theta: axes.concat([axes[0]]),
+          line:{color:col,width:2}, marker:{size:5,color:col},
+          fill:'toself', fillcolor:hexToRgba(col,0.25),
+          hovertemplate:`${nm} %{theta}: %{r:.3f}<extra></extra>`,
+        }], baseLayout({
+          polar:{ bgcolor:'#0b0e13',
+            radialaxis:{range:[0,1], tickvals:[0.5,1], tickfont:{size:7,color:'#63707f'}, gridcolor:'#262f3b', linecolor:'#262f3b'},
+            angularaxis:{tickfont:{size:9,color:'#9aa7b6'}, gridcolor:'#262f3b', linecolor:'#262f3b'} },
+          showlegend:false, height:180, margin:{l:28,r:28,t:16,b:16},
+        }), PLOT_CONFIG);
+      });
+    }
   } else pc.innerHTML='';
 }
 
+/** Convert a #rrggbb hex to an rgba() string with the given alpha. */
+function hexToRgba(hex, a){
+  const h = hex.replace('#','');
+  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 function bigStat(label, val, sub, hero){
-  const v = (val==null||isNaN(val)) ? ':' : val.toFixed(3);
+  const v = (val==null||isNaN(val)) ? '—' : val.toFixed(3);
   return `<div class="an-bigstat ${hero?'an-bigstat-hero':''}">`+
     `<div class="an-bigstat-v">${v}</div>`+
     `<div class="an-bigstat-l">${label}</div>`+
@@ -1431,8 +1795,8 @@ function renderKmeansCard(d){
   const methodName = {kmeans:'k-means', gmm:'GMM', spectral:'spectral'}[method] || method;
   chip.textContent = (are ? 'labels ≈ clusters' : 'labels ≠ clusters') + ` · ${methodName}`;
   chip.className = 'an-chip ' + (are ? 'an-chip-good' : 'an-chip-warn');
-  const acc = hi.cluster_accuracy!=null ? (100*hi.cluster_accuracy).toFixed(1)+'%' : ':';
-  const ariL = hi.ari_vs_labels!=null ? hi.ari_vs_labels.toFixed(3) : ':';
+  const acc = hi.cluster_accuracy!=null ? (100*hi.cluster_accuracy).toFixed(1)+'%' : '—';
+  const ariL = hi.ari_vs_labels!=null ? hi.ari_vs_labels.toFixed(3) : '—';
   let html =
     '<div class="an-stat-row">' +
     statCell('ARI vs labels', ariL) +
@@ -1446,7 +1810,7 @@ function renderKmeansCard(d){
   } else {
     html += `<p class="an-kmeans-say an-say-warn">The natural clusters do <strong>not</strong> match the labels well (ARI ${ariL})`;
     if(km.best_k_by_silhouette !== km.n_classes){
-      html += ` : silhouette even prefers <strong>${km.best_k_by_silhouette}</strong> clusters against <strong>${km.n_classes}</strong> classes`;
+      html += ` — silhouette even prefers <strong>${km.best_k_by_silhouette}</strong> clusters against <strong>${km.n_classes}</strong> classes`;
     }
     html += `. Part of any apparent "projection error" may therefore be a label/geometry mismatch, not the projection's fault.</p>`;
     if(method === 'kmeans'){
@@ -1458,11 +1822,113 @@ function renderKmeansCard(d){
     html += '<h4>Does each projection preserve the clustering?</h4><div class="an-stat-row">';
     Object.keys(km.methods).forEach(m=>{
       const ari = km.methods[m].ari_vs_high;
-      html += statCell(`${m}: ARI 2-D vs high-D`, ari!=null?ari.toFixed(3):':');
+      html += statCell(`${m}: ARI 2-D vs high-D`, ari!=null?ari.toFixed(3):'—');
     });
     html += '</div>';
   }
+  // containers for the two charts
+  html += '<h4>Cluster vs class confusion</h4>'+
+          '<p class="an-note" style="margin-bottom:8px">Each cell is the number of points in a high-D cluster (row) that carry a given class label (column). A clean result is <strong>block-diagonal</strong>: each cluster is dominated by one class. <strong>Cluster purity</strong> = the biggest count in a row &divide; that row&rsquo;s total (how single-class each cluster is). <strong>Class coverage</strong> = the biggest count in a column &divide; that column&rsquo;s total (how much of each class landed in one cluster).</p>'+
+          '<div class="plot" id="kmHeatmap" style="height:230px"></div>'+
+          '<div id="kmPurity"></div>';
+  if(km.silhouette_scan && km.silhouette_scan.length){
+    html += '<h4>Silhouette by cluster count</h4>'+
+            '<p class="an-note" style="margin-bottom:6px">The <strong>silhouette</strong> score (&minus;1 to +1) measures how well-separated the clusters are: each point compares its average distance to its own cluster against the nearest other cluster. Near <strong>+1</strong> = tight, well-separated clusters; near <strong>0</strong> = overlapping clusters; <strong>negative</strong> = points likely in the wrong cluster. The peak marks the number of clusters the geometry most naturally supports &mdash; if that differs from your class count, the labels may split or merge the natural groups.</p>'+
+            '<div class="plot" id="kmSilhouette" style="height:200px"></div>';
+  }
   body.innerHTML = html;
+  renderKmeansCharts(d);
+}
+
+/* Confusion heatmap (high-D clusters x class labels) + silhouette-vs-k plot. */
+function renderKmeansCharts(d){
+  if(typeof Plotly==='undefined') return;
+  const km = d.kmeans; if(!km) return;
+  const names = (d.rel_metrics && d.rel_metrics.target_names) || d.target_names || [];
+
+  // --- confusion heatmap ---
+  const hm = $('kmHeatmap');
+  if(hm && km.contingency && km.contingency.length){
+    const M = km.contingency;                       // rows=clusters, cols=classes
+    const nClusters = M.length, nClasses = M[0].length;
+    const flatMax = Math.max(...M.flat(), 1);
+    const classNames = Array.from({length:nClasses}, (_,j)=> names[j]!==undefined?String(names[j]):`class ${j}`);
+    const clusterNames = Array.from({length:nClusters}, (_,i)=>{
+      const ml = km.matched_labels && km.matched_labels[i]!=null ? km.matched_labels[i] : null;
+      const mlName = (ml!=null && names[ml]!==undefined) ? String(names[ml]) : (ml!=null?`class ${ml}`:'');
+      return mlName ? `cl ${i} → ${mlName}` : `cluster ${i}`;
+    });
+    const ann = [];
+    for(let i=0;i<nClusters;i++) for(let j=0;j<nClasses;j++){
+      const v = M[i][j];
+      ann.push({x:classNames[j], y:clusterNames[i], text:String(v), showarrow:false,
+        font:{size:11, color: v > 0.5*flatMax ? '#0e1116' : '#e8edf3'}});
+    }
+    Plotly.react(hm, [{
+      type:'heatmap', z:M, x:classNames, y:clusterNames,
+      colorscale:[[0,'#0e1116'],[0.5,'#2a5a8a'],[1,'#4ec97a']],
+      showscale:true, colorbar:{title:{text:'points',font:{size:9,color:'#9aa7b6'}}, thickness:10, len:0.9},
+      hovertemplate:'cluster %{y} · %{x}: %{z} points<extra></extra>',
+    }], baseLayout({
+      xaxis:Object.assign({title:'class label', side:'bottom'},AXIS),
+      yaxis:Object.assign({title:'high-D cluster', automargin:true},AXIS),
+      annotations:ann, height:230, margin:{l:100,r:20,t:10,b:44},
+    }), PLOT_CONFIG);
+
+    // --- cluster purity (per row) and class coverage (per column) ---
+    const purityDiv = $('kmPurity');
+    if(purityDiv){
+      const rowTotals = M.map(r=>r.reduce((a,b)=>a+b,0));
+      const colTotals = classNames.map((_,j)=> M.reduce((a,r)=>a+r[j],0));
+      const rowPurity = M.map((r,i)=> rowTotals[i]>0 ? Math.max(...r)/rowTotals[i] : 0);
+      const colCoverage = classNames.map((_,j)=>{
+        const col = M.map(r=>r[j]); return colTotals[j]>0 ? Math.max(...col)/colTotals[j] : 0;
+      });
+      const overallPurity = rowTotals.reduce((a,b)=>a+b,0)>0
+        ? M.reduce((a,r)=>a+Math.max(...r),0) / rowTotals.reduce((a,b)=>a+b,0) : 0;
+      const pill = (label,val)=>{
+        const pct = (val*100).toFixed(0);
+        const cls = val>=0.8?'pcell-good':(val>=0.5?'pcell-mid':'pcell-bad');
+        return `<span class="pcell ${cls}"><span class="pcell-l">${label}</span><span class="pcell-v">${pct}%</span></span>`;
+      };
+      let ph = `<div class="purity-head">Overall cluster purity: <strong>${(overallPurity*100).toFixed(0)}%</strong> of points fall in a cluster dominated by their own class</div>`;
+      ph += '<div class="purity-grid"><div class="purity-col"><div class="purity-col-t">Cluster purity (each cluster is how single-class?)</div>';
+      rowPurity.forEach((p,i)=> ph += pill(clusterNames[i], p));
+      ph += '</div><div class="purity-col"><div class="purity-col-t">Class coverage (each class is how concentrated in one cluster?)</div>';
+      colCoverage.forEach((cvg,j)=> ph += pill(classNames[j], cvg));
+      ph += '</div></div>';
+      purityDiv.innerHTML = ph;
+    }
+  } else {
+    const purityDiv = $('kmPurity'); if(purityDiv) purityDiv.innerHTML='';
+  }
+
+  // --- silhouette vs k ---
+  const sil = $('kmSilhouette');
+  if(sil && km.silhouette_scan && km.silhouette_scan.length){
+    const ks = km.silhouette_scan.map(s=>s.k);
+    const vals = km.silhouette_scan.map(s=>s.silhouette);
+    const bestK = km.best_k_by_silhouette, nClasses = km.n_classes;
+    const colors = ks.map(k=> k===bestK ? '#4ec97a' : (k===nClasses ? '#d24b52' : '#7f9ab5'));
+    const sizes = ks.map(k=> (k===bestK||k===nClasses) ? 12 : 7);
+    Plotly.react(sil, [{
+      type:'scatter', mode:'lines+markers', x:ks, y:vals,
+      line:{color:'#46566a',width:1.5},
+      marker:{color:colors, size:sizes, line:{color:'#0e1116',width:1}},
+      hovertemplate:'k=%{x}: silhouette %{y:.3f}<extra></extra>',
+    }], baseLayout({
+      xaxis:Object.assign({title:'number of clusters k', dtick:1},AXIS),
+      yaxis:Object.assign({title:'silhouette'},AXIS),
+      height:200, margin:{l:48,r:14,t:10,b:36},
+      annotations:[
+        {x:bestK, y:vals[ks.indexOf(bestK)], text:'best', showarrow:true, arrowhead:0,
+         ax:0, ay:-20, font:{size:9,color:'#4ec97a'}, arrowcolor:'#4ec97a'},
+        (ks.includes(nClasses) && nClasses!==bestK ? {x:nClasses, y:vals[ks.indexOf(nClasses)],
+         text:`#classes (${nClasses})`, showarrow:true, arrowhead:0, ax:0, ay:22,
+         font:{size:9,color:'#d24b52'}, arrowcolor:'#d24b52'} : null),
+      ].filter(Boolean),
+    }), PLOT_CONFIG);
+  }
 }
 
 /* verdict modal */
@@ -1474,8 +1940,8 @@ function openVerdictModal(){
   html += '<h4>The four criteria</h4>' + componentBars(v.per_method);
   html += `<div class="an-note" style="margin-top:12px">`+
     `<strong>Confidence.</strong> Cohen's d = ${fmt3(p.d)}; 95% bootstrap CI on the per-point distortion gap = [${sgn3(p.ci[0])}, ${sgn3(p.ci[1])}]. `+
-    (p.decisive ? 'The interval excludes zero : the win is reliable.'
-                : (p.tie ? 'Within the tie threshold.' : 'The interval crosses zero : provisional.'))+
+    (p.decisive ? 'The interval excludes zero — the win is reliable.'
+                : (p.tie ? 'Within the tie threshold.' : 'The interval crosses zero — provisional.'))+
     `</div>`;
   html += `<div class="an-why" style="margin-top:12px"><strong>How to read this.</strong> `+
     `Fidelity (weight 0.40) is the per-point distortion; trust and continuity (0.20 each) are the classical neighbour-preservation scalars; cluster (0.20) is how well each projection preserves the k-means partition. Weights are fixed, not tuned, and every component is shown so you can weigh them yourself.</div>`;
@@ -1486,19 +1952,32 @@ function closeVerdictModal(){ $('verdictModal').hidden = true; }
 
 
 /* TABS / CONSOLE / TOAST */
+const TAB_INTROS = {
+  dataquality: `<strong>Data Quality</strong> — is the class structure genuinely in the data, and do the labels describe it? These answers depend only on the data, <em>not</em> on any projection. If the data has no structure, or the labels don't match it, no projection can fix that.`,
+  projquality: `<strong>Projection Quality</strong> — given the data, how faithfully does each 2-D projection preserve it, and which is better? These answers are about the <em>picture</em>. A good projection of poorly-structured data still looks poor — that's a data problem, diagnosed in the Data Quality tab.`,
+  explorer: `<strong>Point Explorer</strong> — drill into the individual points a projection gets wrong, decomposed into false-closeness (intrusion) and lost-neighbour (extrusion) for each method.`,
+};
 function activateTab(name){
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
-  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.dataset.panel===name));
-  // Plotly needs a resize nudge when a hidden plot becomes visible
+  // show every panel whose data-group matches the active tab
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.dataset.group===name));
+  const intro = $('tabIntro');
+  if(intro) intro.innerHTML = TAB_INTROS[name] || '';
+  // Plotly needs a resize nudge when hidden plots become visible
   setTimeout(()=>{
-    document.querySelectorAll(`.panel[data-panel="${name}"] .plot`).forEach(pl=>{
+    document.querySelectorAll(`.panel[data-group="${name}"] .plot`).forEach(pl=>{
       if(pl.data && typeof Plotly!=='undefined') Plotly.Plots.resize(pl);
     });
-    // re-apply the Error Space rings after the resize so they stay aligned
-    if(name==='errorspace' && state.result) applyEsSelection(state.result, null);
-    // re-render the annealing trace so it sizes correctly on first open
-    if(name==='verdict' && state.result) safeRender('anneal', ()=>renderAnnealCard(state.result));
-  }, 30);
+    if(name==='projquality' && state.result){
+      applyEsSelection(state.result, null);
+      safeRender('anneal', ()=>renderAnnealCard(state.result));
+    }
+    if(name==='dataquality' && state.result){
+      safeRender('anneal', ()=>renderAnnealCard(state.result));
+      safeRender('kmeans-charts', ()=>renderKmeansCharts(state.result));
+      safeRender('metrics', ()=>renderMetricsCard(state.result));
+    }
+  }, 40);
 }
 function bindTabs(){
   $('tabs').addEventListener('click',(e)=>{

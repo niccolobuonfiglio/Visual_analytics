@@ -73,7 +73,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         class_aware = not bool(params.get("geometric", False)) if "geometric" in params else False
     geometric = not class_aware
     weight = params.get("weight", "rank")
-    adaptive = bool(params.get("adaptive", False))
+    adaptive = bool(params.get("adaptive", True))
     normalize = params.get("normalize", "none")
     norm_scale = float(params.get("norm_scale", 3.0))
     alpha = float(params.get("alpha", 1.0))
@@ -157,6 +157,32 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
             proj, X_high, y, metric=metric, k=neighbors,
             class_aware=class_aware, weight=weight, adaptive=adaptive,
             alpha=alpha, beta=beta, return_parts=True)
+
+        # per-point k distribution (only meaningful when adaptive k is on)
+        adaptive_k_dist = None
+        if adaptive:
+            try:
+                from error_core import adaptive_k as _adaptive_k
+                from sklearn.metrics import pairwise_distances as _pdist
+                kv = _adaptive_k(_pdist(X_high, metric="euclidean"), neighbors)
+                kv = np.asarray(kv, dtype=int)
+                # bin into the requested ranges
+                bins = [(3, 5), (6, 8), (9, 12), (13, 100)]
+                bin_labels = ["3-5", "6-8", "9-12", "13+"]
+                counts = []
+                for lo, hi in bins:
+                    counts.append(int(np.sum((kv >= lo) & (kv <= hi))))
+                total = max(1, len(kv))
+                adaptive_k_dist = {
+                    "bin_labels": bin_labels,
+                    "counts": counts,
+                    "pct": [round(100.0 * c / total, 1) for c in counts],
+                    "k_min": int(kv.min()), "k_max": int(kv.max()),
+                    "k_median": int(np.median(kv)), "k_base": int(neighbors),
+                    "n": total,
+                }
+            except Exception as ke:
+                print(f"[adaptive k] distribution skipped ({ke})")
 
         if normalize != "none":
             errs = {m: normalize_errors(e, normalize, norm_scale)
@@ -343,6 +369,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         "centroids": centroids,
         "weight_info": weight_info,
         "mds_compare": mds_compare,
+        "adaptive_k_dist": adaptive_k_dist,
         "kmeans": kmeans_res,
         "rel_metrics": rel_res,
         "anneal": anneal_res,

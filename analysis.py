@@ -315,6 +315,13 @@ def kmeans_analysis(X_high: NDArray[np.float64], projections: dict,
     match = _match_clusters_to_labels(labels, cl_high, n_classes, n_clusters)
     matched = np.array([match.get(int(c), -1) for c in cl_high])
     cluster_accuracy = float(np.mean(matched == labels))
+    # contingency table (high-D cluster rows x class-label columns) for a
+    # confusion-matrix heatmap in the UI
+    uniq_labels = list(np.unique(labels))
+    lab_index = {l: j for j, l in enumerate(uniq_labels)}
+    contingency = np.zeros((n_clusters, n_classes), dtype=int)
+    for cl, la in zip(cl_high, labels):
+        contingency[int(cl), lab_index[int(la)]] += 1
     # per-class recall under that matching (what fraction of each class is
     # captured by the cluster assigned to it)
     per_class_capture = {}
@@ -327,6 +334,8 @@ def kmeans_analysis(X_high: NDArray[np.float64], projections: dict,
         "n_classes": n_classes,
         "cluster_method": cluster_method,
         "best_k_by_silhouette": int(best_k),
+        "contingency": contingency.tolist(),
+        "matched_labels": [int(match.get(int(r), -1)) for r in range(n_clusters)],
         "silhouette_scan": sil_scan,
         "high_d": {
             "ari_vs_labels": float(adjusted_rand_score(labels, cl_high)),

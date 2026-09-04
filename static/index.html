@@ -77,15 +77,24 @@
               <span class="field-label">Neighbourhood k <span class="mono" id="kEcho">10</span></span>
               <input type="range" id="neighbors" class="slider" min="2" max="40" value="10">
             </label>
+            <div class="adaptk-mini" id="adaptkMini" hidden>
+              <span class="adaptk-mini-label">adaptive k in use:</span>
+              <span class="adaptk-mini-vals" id="adaptkMiniVals">—</span>
+            </div>
             <div class="seg seg-sm" id="weightSeg">
               <span class="seg-cap">weight</span>
               <button class="seg-btn active" data-weight="rank">rank</button>
               <button class="seg-btn" data-weight="distance">distance</button>
             </div>
             <label class="check">
-              <input type="checkbox" id="adaptive">
-              <span>Adaptive k <span class="hint">per-point, by local density</span></span>
+              <input type="checkbox" id="adaptive" checked>
+              <span>Adaptive k <span class="hint">per-point, by local density &mdash; recommended</span></span>
             </label>
+            <p class="ctl-note" style="margin-top:2px">Recommended: a single global
+              <em>k</em> is too coarse in dense regions and too noisy in sparse ones.
+              Adaptive <em>k</em> gives each point a neighbourhood sized to its local
+              density (the slider then sets the <em>median</em> point&rsquo;s k), so
+              the fidelity metric is fair across regions of differing density.</p>
             <label class="check">
               <input type="checkbox" id="classAware">
               <span>Class-aware <span class="hint">use labels; measure class-structure fidelity</span></span>
@@ -195,7 +204,7 @@
         <!-- VERDICT BANNER: the headline PCA-vs-MDS decision, always visible -->
         <div class="verdict-banner" id="verdictBanner" hidden>
           <div class="vb-main">
-            <div class="vb-badge" id="vbBadge">:</div>
+            <div class="vb-badge" id="vbBadge">—</div>
             <div class="vb-text">
               <div class="vb-headline" id="vbHeadline">Awaiting analysis</div>
               <div class="vb-sub" id="vbSub"></div>
@@ -207,7 +216,7 @@
         <!-- DATA & LABELS BANNER: do the labels describe the data's structure? -->
         <div class="verdict-banner labels-banner" id="labelsBanner" hidden>
           <div class="vb-main">
-            <div class="vb-badge" id="lbBadge">:</div>
+            <div class="vb-badge" id="lbBadge">—</div>
             <div class="vb-text">
               <div class="vb-headline" id="lbHeadline">Awaiting analysis</div>
               <div class="vb-sub" id="lbSub"></div>
@@ -217,14 +226,15 @@
         </div>
 
         <nav class="tabs" id="tabs">
-          <button class="tab active" data-tab="errorspace">Error Space</button>
-          <button class="tab" data-tab="verdict">Verdict &amp; Analysis</button>
-          <button class="tab" data-tab="centroids">Centroids</button>
-          <button class="tab" data-tab="histograms">Histograms</button>
-          <button class="tab" data-tab="table">Point table</button>
+          <button class="tab active" data-tab="dataquality">Data Quality</button>
+          <button class="tab" data-tab="projquality">Projection Quality</button>
+          <button class="tab" data-tab="explorer">Point Explorer</button>
         </nav>
 
-        <section class="panel active" data-panel="errorspace">
+        <div class="tab-intro" id="tabIntro"></div>
+
+        <section class="panel" data-panel="errorspace" data-group="projquality">
+          <h3 class="panel-title" data-info-title="errorspace">Error Space</h3>
           <div class="panel-caption">Integrated exploration across all three views at once: the <strong>PCA</strong> and <strong>MDS</strong> projections on top, and the <strong>error space</strong> (PCA error vs MDS error) below. Drag a box or lasso on <em>any</em> plot to select points -> the same points ring on all three. Or click a quadrant below to select every point whose PCA/MDS error signs match. Selection detail appears in the shared table.</div>
 
           <div class="es-quadrants" id="esQuadrants">
@@ -284,23 +294,6 @@
             </div>
           </div>
 
-          <!-- WEIGHTED-MDS COMPARISON: shown only when weighted MDS is active -->
-          <div class="wmds-compare" id="wmdsCompare" hidden>
-            <div class="wmds-head">
-              <span class="wmds-title">Weighted MDS &mdash; class separation</span>
-              <span class="wmds-delta" id="wmdsDelta">&mdash;</span>
-            </div>
-            <p class="wmds-note" id="wmdsNote"></p>
-            <div class="es-grid">
-              <div class="plot es-plot" id="wmdsPlain"></div>
-              <div class="plot es-plot" id="wmdsWeighted"></div>
-            </div>
-            <div class="wmds-weights-wrap">
-              <div class="wmds-weights-label">Feature weights (mutual information with the class) &mdash; taller bars drove the layout more</div>
-              <div class="plot" id="wmdsWeights" style="height:180px"></div>
-            </div>
-          </div>
-
           <div class="es-grid">
             <div class="plot es-plot" id="esPca"></div>
             <div class="plot es-plot" id="esMds"></div>
@@ -324,39 +317,29 @@
         </section>
 
         <!-- VERDICT & ANALYSIS PANEL -->
-        <section class="panel" data-panel="verdict">
-          <div class="panel-caption">The mechanical decision on which projection is more faithful for this dataset, and the analysis behind it. The verdict combines four independent criteria and reports a confidence interval, so it will decline to name a winner when the evidence is thin.</div>
+        <section class="panel" data-panel="verdict" data-group="projquality">
+          <div class="panel-caption">The mechanical decision on which projection is more faithful for this dataset. This is a <strong>projection</strong> question — it measures the picture, not the data.</div>
 
           <!-- headline verdict card -->
           <div class="an-card an-verdict" id="anVerdictCard">
             <div class="an-card-head">
-              <h3>PCA vs MDS verdict</h3>
-              <span class="an-chip" id="anVerdictChip">:</span>
+              <h3 data-info-title="verdict">PCA vs MDS verdict</h3>
+              <span class="an-chip" id="anVerdictChip">—</span>
             </div>
             <div class="an-verdict-body" id="anVerdictBody"></div>
             <div class="an-verdict-components" id="anVerdictComponents"></div>
             <div class="an-note" id="anVerdictNote"></div>
           </div>
+        </section>
 
-          <!-- simulated annealing card -->
-          <div class="an-card" id="anAnnealCard">
-            <div class="an-card-head">
-              <h3>Neighbourhood search &nbsp;<span class="an-subtle">simulated annealing</span></h3>
-              <span class="an-chip an-chip-quiet" id="anAnnealChip">:</span>
-            </div>
-            <div class="an-why" id="anAnnealWhy">
-              <strong>Why this is needed.</strong> The F1-score as a function of the neighbourhood size <em>k</em> is neither concave nor convex: enlarging <em>k</em> steadily raises recall but lowers precision in a bumpy way, so the combined score has several local peaks. A plain scan is wasteful and gradient methods get stuck, so the toolkit anneals : it accepts occasional worsening moves early on to escape local optima, then cools to refine. Crucially, no projection is recomputed during the search; only the similarity graph is rebuilt, which is what makes it cheap.
-            </div>
-            <div class="an-anneal-stats" id="anAnnealStats"></div>
-            <div class="plot an-plot" id="anAnnealPlot"></div>
-            <div class="an-note" id="anAnnealNote"></div>
-          </div>
+        <section class="panel active" data-panel="analysis-data" data-group="dataquality">
+          <div class="panel-caption">Is the class structure genuinely present in the data, and do the labels describe it? These are <strong>data</strong> questions — independent of any projection.</div>
 
           <!-- cluster-structure metrics card -->
           <div class="an-card" id="anMetricsCard">
             <div class="an-card-head">
-              <h3>Cluster-structure metrics &nbsp;<span class="an-subtle">precision · recall · F1</span></h3>
-              <span class="an-chip an-chip-quiet" id="anMetricsChip">:</span>
+              <h3 data-info-title="clustermetrics">Cluster-structure metrics &nbsp;<span class="an-subtle">precision · recall · F1</span></h3>
+              <span class="an-chip an-chip-quiet" id="anMetricsChip">—</span>
             </div>
             <div class="an-why">
               <strong>What this asks.</strong> Separately from projection fidelity, are the classes genuinely present as clusters in the high-dimensional data? Precision asks whether a point is surrounded by its own class; recall asks whether each class holds together; <strong>F1</strong> is their harmonic mean. These are computed on the data itself, so a low score is a property of the data, not of any projection.
@@ -365,26 +348,59 @@
             <div class="an-metrics-perclass" id="anMetricsPerClass"></div>
           </div>
 
+          <!-- simulated annealing card -->
+          <div class="an-card" id="anAnnealCard">
+            <div class="an-card-head">
+              <h3 data-info-title="annealing">Neighbourhood search &nbsp;<span class="an-subtle">simulated annealing</span></h3>
+              <span class="an-chip an-chip-quiet" id="anAnnealChip">—</span>
+            </div>
+            <div class="an-why" id="anAnnealWhy">
+              <strong>Why this is needed.</strong> The F1-score as a function of the neighbourhood size <em>k</em> is neither concave nor convex: enlarging <em>k</em> steadily raises recall but lowers precision in a bumpy way, so the combined score has several local peaks. A plain scan is wasteful and gradient methods get stuck, so the toolkit anneals — it accepts occasional worsening moves early on to escape local optima, then cools to refine. Crucially, no projection is recomputed during the search; only the similarity graph is rebuilt, which is what makes it cheap.
+            </div>
+            <div class="an-anneal-stats" id="anAnnealStats"></div>
+            <div class="plot an-plot" id="anAnnealPlot"></div>
+            <div class="an-note" id="anAnnealNote"></div>
+          </div>
+
           <!-- k-means validation card -->
           <div class="an-card" id="anKmeansCard">
             <div class="an-card-head">
-              <h3>Ground-truth check &nbsp;<span class="an-subtle">k-means</span></h3>
-              <span class="an-chip an-chip-quiet" id="anKmeansChip">:</span>
+              <h3 data-info-title="kmeans">Ground-truth check &nbsp;<span class="an-subtle">k-means</span></h3>
+              <span class="an-chip an-chip-quiet" id="anKmeansChip">—</span>
             </div>
             <div class="an-why">
-              <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups : so this check runs before the verdict is trusted.
+              <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups — so this check runs before the verdict is trusted.
             </div>
             <div class="an-kmeans-body" id="anKmeansBody"></div>
           </div>
+
+          <!-- WEIGHTED-MDS COMPARISON: shown only when weighted MDS is active -->
+          <div class="an-card wmds-compare" id="wmdsCompare" hidden>
+            <div class="wmds-head">
+              <span class="wmds-title" data-info-title="weightedmds">Weighted MDS &mdash; class separation</span>
+              <span class="wmds-delta" id="wmdsDelta">&mdash;</span>
+            </div>
+            <p class="wmds-note" id="wmdsNote"></p>
+            <div class="es-grid">
+              <div class="plot es-plot" id="wmdsPlain"></div>
+              <div class="plot es-plot" id="wmdsWeighted"></div>
+            </div>
+            <div class="wmds-weights-wrap">
+              <div class="wmds-weights-label">Feature weights (mutual information with the class) &mdash; taller bars drove the layout more</div>
+              <div class="plot" id="wmdsWeights" style="height:180px"></div>
+            </div>
+          </div>
         </section>
 
-        <section class="panel" data-panel="centroids">
+        <section class="panel" data-panel="centroids" data-group="projquality">
+          <h3 class="panel-title" data-info-title="centroids">Centroid Trajectories</h3>
           <div class="panel-caption">Each class centroid traced across high-D (a 2-D PCA view of the class means), PCA and MDS. Every stage is centred and RMS-normalised so the <em>relative</em> class configuration is comparable: a class that drifts far between stages is one a method pulls apart or compresses. The mean between-centroid distance per stage (below) quantifies whether class separation is preserved.</div>
           <div class="plot plot-wide" id="centPlot"></div>
           <div class="cent-meta" id="centMeta"></div>
         </section>
 
-        <section class="panel" data-panel="histograms">
+        <section class="panel" data-panel="histograms" data-group="projquality">
+          <h3 class="panel-title" data-info-title="histograms">Error Distribution</h3>
           <div class="panel-caption">Distribution of signed error per method, bars centred on their bin value and tinted by the scale. The green line marks the <strong>median</strong> count of an occupied bin, with the two dashed <strong>±2σ</strong> lines bounding the shaded band; bars poking above the upper line are unusually tall. Statistics use only non-empty bins, since the errors concentrate in a few bins and most stay empty. Hover any bar for its exact error interval and count.</div>
           <div class="dual-plot">
             <div class="plot" id="histPca"></div>
@@ -392,7 +408,8 @@
           </div>
         </section>
 
-        <section class="panel" data-panel="table">
+        <section class="panel" data-panel="table" data-group="explorer">
+          <h3 class="panel-title" data-info-title="untrustworthy">Untrustworthy Points</h3>
           <div class="panel-caption">Points flagged as untrustworthy, decomposed into intrusion (FP) and extrusion (FN) for each method. <span id="tableMeta"></span></div>
           <div class="table-wrap">
             <table class="dtable" id="dtable">
@@ -421,13 +438,27 @@
   <div class="modal-overlay" id="verdictModal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
       <div class="modal-head">
-        <h2 id="vmTitle">PCA vs MDS : full verdict</h2>
+        <h2 id="vmTitle">PCA vs MDS — full verdict</h2>
         <button class="modal-close" id="vmClose" aria-label="Close">✕</button>
       </div>
       <div class="modal-body" id="vmBody"></div>
       <div class="modal-foot">
         <button class="ghost-btn" id="vmGotoTab">Open Verdict &amp; Analysis tab</button>
         <button class="run-btn run-btn-sm" id="vmDone">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GENERIC INFO MODAL (metric explanations) -->
+  <div class="modal-overlay" id="infoModal" hidden>
+    <div class="modal modal-info" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+      <div class="modal-head">
+        <h2 id="infoTitle">Metric</h2>
+        <button class="modal-close" id="infoClose" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="infoBody"></div>
+      <div class="modal-foot">
+        <button class="run-btn run-btn-sm" id="infoDone">Got it</button>
       </div>
     </div>
   </div>
