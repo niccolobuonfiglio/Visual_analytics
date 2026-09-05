@@ -252,6 +252,108 @@ def _ranks(D: NDArray[np.float64]) -> NDArray[np.int_]:
     return np.argsort(np.argsort(D, axis=1), axis=1) + 1   # nearest non-self -> 1
 
 
+def per_point_neighbor_metrics(X_high: NDArray[np.float64],
+                               X_2d: NDArray[np.float64],
+                               k: int = 10,
+                               k_vec: Optional[NDArray[np.int_]] = None
+                               ) -> dict:
+    """Per-point neighbourhood-preservation metrics for one 2-D projection.
+
+    Treats each point as a "classifier of its own neighbourhood": the high-D
+    k-nearest-neighbour SET is the ground truth (the neighbours that should be
+    kept), and the 2-D k-nearest-neighbour SET is the prediction (the neighbours
+    the projection actually kept). From the overlap of the two sets:
+
+        precision_i = |kNN_2D ∩ kNN_highD| / |kNN_2D|
+            -- of the neighbours the projection asserts, how many are real
+               (1 - precision is the intrusion / false-positive rate)
+        recall_i    = |kNN_2D ∩ kNN_highD| / |kNN_highD|
+            -- of the real neighbours, how many the projection kept
+               (1 - recall is the extrusion / false-negative rate)
+        f1_i        = 2 * precision * recall / (precision + recall)
+
+    With a symmetric fixed k, |kNN_2D| = |kNN_highD| = k, so precision == recall
+    == f1 for that point; the three still differ when adaptive per-point k is
+    used (then each point's high-D and 2-D neighbourhoods can have different
+    sizes). All three are in [0, 1]; 1 = the projection preserved this point's
+    neighbourhood perfectly.
+
+    Also computes a per-point **Jensen-Shannon divergence** between soft
+    neighbour distributions, as an alternative to the hard k-NN F1. Following
+    the t-SNE idea, each point's neighbours get a probability from a Gaussian
+    over distances, in high-D (P) and in 2-D (Q); JS(P||Q) in [0, 1] (log base
+    2) measures how differently the projection distributes a point's
+    neighbour-affinity. 0 = identical distributions (faithful); 1 = maximally
+    different. Reported as ``js`` (divergence) and ``js_fidelity = 1 - js`` so
+    that, like F1, higher == better.
+
+    Returns per-point arrays (lists) for ``precision``, ``recall``, ``f1``,
+    ``js``, ``js_fidelity`` plus their global means.
+    """
+    Dh = pairwise_distances(X_high, metric="euclidean")
+    Dl = pairwise_distances(X_2d, metric="euclidean")
+    n = Dh.shape[0]
+    np.fill_diagonal(Dh, np.inf)
+    np.fill_diagonal(Dl, np.inf)
+
+    # neighbour ORDER (nearest first) in each space
+    order_h = np.argsort(Dh, axis=1)
+    order_l = np.argsort(Dl, axis=1)
+
+    prec = np.zeros(n); rec = np.zeros(n); f1 = np.zeros(n)
+    for i in range(n):
+        ki = int(k_vec[i]) if k_vec is not None else int(k)
+        ki = max(1, min(ki, n - 1))
+        set_h = set(order_h[i, :ki].tolist())
+        set_l = set(order_l[i, :ki].tolist())
+        inter = len(set_h & set_l)
+        p = inter / len(set_l) if set_l else 0.0
+        r = inter / len(set_h) if set_h else 0.0
+        prec[i] = p; rec[i] = r
+        f1[i] = (2 * p * r / (p + r)) if (p + r) > 0 else 0.0
+
+    # ---- Jensen-Shannon divergence between soft neighbour distributions ----
+    # per-point Gaussian bandwidth = distance to the k-th neighbour, so the
+    # softness scales with local density (a t-SNE-style local perplexity proxy)
+    def _soft(D, order):
+        P = np.zeros((n, n))
+        for i in range(n):
+            ki = int(k_vec[i]) if k_vec is not None else int(k)
+            ki = max(1, min(ki, n - 1))
+            sigma = D[i, order[i, ki - 1]]
+            if not np.isfinite(sigma) or sigma <= 0:
+                sigma = np.mean(D[i, order[i, :ki]]) or 1.0
+            w = np.exp(-(D[i] ** 2) / (2.0 * sigma ** 2))
+            w[i] = 0.0
+            s = w.sum()
+            P[i] = w / s if s > 0 else w
+        return P
+
+    P = _soft(Dh, order_h)
+    Q = _soft(Dl, order_l)
+    M = 0.5 * (P + Q)
+    eps = 1e-12
+    def _kl(A, B):
+        A = np.clip(A, eps, 1.0); B = np.clip(B, eps, 1.0)
+        return np.sum(A * (np.log2(A) - np.log2(B)), axis=1)
+    js = 0.5 * _kl(P, M) + 0.5 * _kl(Q, M)     # in [0, 1] with log base 2
+    js = np.clip(js, 0.0, 1.0)
+    js_fid = 1.0 - js
+
+    return {
+        "precision": prec.tolist(),
+        "recall": rec.tolist(),
+        "f1": f1.tolist(),
+        "js": js.tolist(),
+        "js_fidelity": js_fid.tolist(),
+        "mean": {
+            "precision": float(prec.mean()), "recall": float(rec.mean()),
+            "f1": float(f1.mean()), "js": float(js.mean()),
+            "js_fidelity": float(js_fid.mean()),
+        },
+    }
+
+
 def adaptive_k(D_high: NDArray[np.float64], k_base: int,
                k_min: int = 3, k_max: Optional[int] = None
                ) -> NDArray[np.int_]:

@@ -56,14 +56,6 @@
             <input type="checkbox" id="noStandardize">
             <span>Skip standardization</span>
           </label>
-          <label class="check">
-            <input type="checkbox" id="weightedMds">
-            <span>Weighted MDS <span class="hint">mutual-info weighted Euclidean</span></span>
-          </label>
-          <p class="ctl-note" style="margin-top:2px">Scales each feature by its
-            mutual information with the class label before MDS, so the most
-            class-informative features drive the layout. PCA and the fidelity
-            reference stay unweighted.</p>
         </section>
 
         <section class="ctl-group">
@@ -74,17 +66,13 @@
 
           <div class="metric-panel" id="intrusionPanel">
             <label class="field">
-              <span class="field-label">Neighbourhood k <span class="mono" id="kEcho">10</span></span>
+              <span class="field-label">Neighbourhood k <span class="mono" id="kEcho">10</span>
+                <span class="rec-badge">Recommended</span></span>
               <input type="range" id="neighbors" class="slider" min="2" max="40" value="10">
             </label>
             <div class="adaptk-mini" id="adaptkMini" hidden>
               <span class="adaptk-mini-label">adaptive k in use:</span>
               <span class="adaptk-mini-vals" id="adaptkMiniVals">—</span>
-            </div>
-            <div class="seg seg-sm" id="weightSeg">
-              <span class="seg-cap">weight</span>
-              <button class="seg-btn active" data-weight="rank">rank</button>
-              <button class="seg-btn" data-weight="distance">distance</button>
             </div>
             <label class="check">
               <input type="checkbox" id="adaptive" checked>
@@ -95,16 +83,7 @@
               Adaptive <em>k</em> gives each point a neighbourhood sized to its local
               density (the slider then sets the <em>median</em> point&rsquo;s k), so
               the fidelity metric is fair across regions of differing density.</p>
-            <label class="check">
-              <input type="checkbox" id="classAware">
-              <span>Class-aware <span class="hint">use labels; measure class-structure fidelity</span></span>
-            </label>
           </div>
-          <p class="ctl-note" style="margin-top:2px">By default the fidelity metric is
-            <strong>geometric</strong> (label-free): it measures whether the projection
-            preserved the data&rsquo;s neighbourhoods, with no assumption that the labels
-            are correct. Turn on <em>class-aware</em> only when you trust the labels and
-            want to measure <em>class</em>-structure fidelity instead.</p>
         </section>
 
         <section class="ctl-group">
@@ -112,19 +91,6 @@
             <span class="ctl-num">03</span>
             <h2>Display</h2>
           </div>
-          <label class="field">
-            <span class="field-label">Normalization</span>
-            <select id="normalize" class="inp">
-              <option value="none">none</option>
-              <option value="tanh">tanh</option>
-              <option value="sigmoid">sigmoid</option>
-              <option value="sumabs">sum-abs</option>
-            </select>
-          </label>
-          <label class="field" id="normScaleField" hidden>
-            <span class="field-label">Steepness <span class="mono" id="normScaleEcho">3.0</span></span>
-            <input type="range" id="normScale" class="slider" min="0.5" max="8" step="0.5" value="3">
-          </label>
           <label class="field">
             <span class="field-label">Untrustworthy |error| ≥ <span class="mono" id="threshEcho">0.50</span></span>
             <input type="range" id="threshold" class="slider" min="0.01" max="1" step="0.01" value="0.5">
@@ -150,20 +116,7 @@
               class must form a full <em>clique</em>, which makes recall &mdash; and F1
               &mdash; discriminating. Default 0.5 keeps recall informative.</p>
           </div>
-          <label class="field">
-            <span class="field-label">Ground-truth clusterer</span>
-            <select id="clusterMethod" class="inp">
-              <option value="kmeans">k-means (convex)</option>
-              <option value="gmm">Gaussian mixture (elliptical)</option>
-              <option value="spectral">spectral (non-convex)</option>
-            </select>
-          </label>
-          <p class="ctl-note" style="margin-top:4px">k-means assumes convex,
-            spherical clusters, so it can wrongly report &ldquo;labels are not
-            clusters&rdquo; on non-convex data (e.g. concentric rings). Switch to
-            <em>spectral</em> to recover non-convex clusters, or <em>GMM</em> for
-            elliptical ones.</p>
-          <p class="ctl-note">The PCA-vs-MDS verdict, precision/recall/F1 and the k-means ground-truth check always run and appear in the <strong>Verdict &amp; Analysis</strong> tab.</p>
+          <p class="ctl-note">The verdict, purity/cohesion metrics and the ground-truth check appear in the results tabs; the class-aware, weighted-MDS and clusterer options live next to their charts.</p>
         </section>
 
       </div>
@@ -236,6 +189,15 @@
         <section class="panel" data-panel="errorspace" data-group="projquality">
           <h3 class="panel-title" data-info-title="errorspace">Error Space</h3>
           <div class="panel-caption">Integrated exploration across all three views at once: the <strong>PCA</strong> and <strong>MDS</strong> projections on top, and the <strong>error space</strong> (PCA error vs MDS error) below. Drag a box or lasso on <em>any</em> plot to select points -> the same points ring on all three. Or click a quadrant below to select every point whose PCA/MDS error signs match. Selection detail appears in the shared table.</div>
+
+          <div class="inline-toggle" id="classAwareBox">
+            <label class="check">
+              <input type="checkbox" id="classAware">
+              <span>Class-aware error <span class="hint">measure class-structure fidelity instead of pure geometry</span></span>
+            </label>
+            <span class="inline-toggle-metric" id="classAwareDelta"></span>
+            <p class="inline-toggle-note">By default the error is <strong>geometric</strong>: it counts <em>any</em> broken neighbour, measuring whether the projection preserved the data&rsquo;s geometry &mdash; with no assumption that the labels are right. <strong>Class-aware</strong> counts only <em>cross-class</em> intrusions and <em>same-class</em> extrusions, so it measures whether the projection preserved the labelled <em>class</em> structure. The two can disagree sharply (on Wine, on ~70% of points), which is itself informative: a point distorted geometrically but faithful class-wise had its neighbourhood reshuffled only <em>within</em> its own class. The number on the right reports how much the two modes differ on the current data.</p>
+          </div>
 
           <div class="es-quadrants" id="esQuadrants">
             <button class="es-quad" data-quad="bothFP">
@@ -316,6 +278,66 @@
           </div>
         </section>
 
+        <!-- TRUST ANALYSIS PANEL: per-point neighbourhood-preservation F1 -->
+        <section class="panel" data-panel="trust" data-group="projquality">
+          <h3 class="panel-title" data-info-title="neighborf1">Trust Analysis — which points can I not trust?</h3>
+          <div class="panel-caption">Each point acts as a <strong>classifier of its own neighbourhood</strong>: its high-D k-nearest neighbours are the &ldquo;truth&rdquo;, its 2-D k-nearest neighbours are the &ldquo;prediction&rdquo;. <strong>Precision</strong> = fraction of the 2-D neighbours that are real (1&nbsp;&minus;&nbsp;precision = false-positive/intrusion rate); <strong>Recall</strong> = fraction of the real neighbours the projection kept (1&nbsp;&minus;&nbsp;recall = false-negative/extrusion rate); <strong>F1</strong> = their harmonic mean, in [0,1]. A <strong>low-F1 point cannot be trusted</strong> — its neighbourhood in the picture is wrong. Colour below is the per-point F1 (red = untrustworthy, green = faithful).</div>
+
+          <div class="trust-controls">
+            <div class="trust-ctl-group">
+              <span class="trust-ctl-label">Metric</span>
+              <span class="seg seg-sm" id="trustMetricSeg">
+                <button class="seg-btn active" data-tm="f1">neighbour F1</button>
+                <button class="seg-btn" data-tm="js_fidelity">JS fidelity</button>
+              </span>
+              <button class="info-btn" data-info="jsdivergence" title="What is JS fidelity?">i</button>
+            </div>
+            <div class="trust-ctl-group">
+              <span class="trust-ctl-label">Boxplot: brushed points count</span>
+              <span class="seg seg-sm" id="brushModeSeg">
+                <button class="seg-btn active" data-bm="within">selected only</button>
+                <button class="seg-btn" data-bm="all">vs everyone</button>
+              </span>
+            </div>
+          </div>
+
+          <div class="es-grid">
+            <div class="plot es-plot" id="trustPca"></div>
+            <div class="plot es-plot" id="trustMds"></div>
+          </div>
+
+          <h4 data-info-title="boxplot" class="has-info">Distribution of per-point score</h4>
+          <div class="plot" id="trustBox" style="height:300px"></div>
+          <div class="trust-boxstats" id="trustBoxStats"></div>
+
+          <div class="trust-filters">
+            <div class="tf-head">
+              <span class="tf-title">Filters</span>
+              <button class="ghost-btn ghost-btn-sm" id="tfClear">Clear all</button>
+            </div>
+            <div class="tf-row">
+              <span class="tf-label">By class</span>
+              <div class="tf-classes" id="tfClasses"></div>
+            </div>
+            <div class="tf-row">
+              <span class="tf-label">By attribute window</span>
+              <div class="tf-attr" id="tfAttr"></div>
+            </div>
+            <p class="tf-note" id="tfNote"></p>
+          </div>
+
+          <h4 data-info-title="metriccompare" class="has-info">F1 vs JS fidelity — where the two metrics disagree</h4>
+          <div class="panel-caption" style="margin-bottom:6px">Each point plotted by its neighbour-F1 (x) against its JS fidelity (y), for the chosen method. Points on the diagonal agree; points <strong>far off the diagonal are judged very differently by the two metrics</strong> — e.g. high F1 but low JS fidelity means the projection kept the right k neighbours but badly distorted their <em>relative</em> affinities. Those are the interesting, ambiguous points.</div>
+          <div class="trust-ctl-group" style="margin-bottom:6px">
+            <span class="trust-ctl-label">Method</span>
+            <span class="seg seg-sm" id="cmpMethodSeg">
+              <button class="seg-btn active" data-cm="MDS">MDS</button>
+              <button class="seg-btn" data-cm="PCA">PCA</button>
+            </span>
+          </div>
+          <div class="plot" id="trustCompare" style="height:340px"></div>
+        </section>
+
         <!-- VERDICT & ANALYSIS PANEL -->
         <section class="panel" data-panel="verdict" data-group="projquality">
           <div class="panel-caption">The mechanical decision on which projection is more faithful for this dataset. This is a <strong>projection</strong> question — it measures the picture, not the data.</div>
@@ -338,11 +360,11 @@
           <!-- cluster-structure metrics card -->
           <div class="an-card" id="anMetricsCard">
             <div class="an-card-head">
-              <h3 data-info-title="clustermetrics">Cluster-structure metrics &nbsp;<span class="an-subtle">precision · recall · F1</span></h3>
+              <h3 data-info-title="clustermetrics">Cluster-structure metrics &nbsp;<span class="an-subtle">purity · cohesion · F1</span></h3>
               <span class="an-chip an-chip-quiet" id="anMetricsChip">—</span>
             </div>
             <div class="an-why">
-              <strong>What this asks.</strong> Separately from projection fidelity, are the classes genuinely present as clusters in the high-dimensional data? Precision asks whether a point is surrounded by its own class; recall asks whether each class holds together; <strong>F1</strong> is their harmonic mean. These are computed on the data itself, so a low score is a property of the data, not of any projection.
+              <strong>What this asks.</strong> Separately from projection fidelity, are the classes genuinely present as clusters in the high-dimensional data? <strong>Purity</strong> asks whether a point is surrounded by its own class (formerly &ldquo;precision&rdquo;); <strong>cohesion</strong> asks whether each class holds together as one connected group (formerly &ldquo;recall&rdquo;); <strong>F1</strong> is their harmonic mean. These are computed on the data itself, so a low score is a property of the data, not of any projection.
             </div>
             <div class="an-metrics-grid" id="anMetricsGrid"></div>
             <div class="an-metrics-perclass" id="anMetricsPerClass"></div>
@@ -371,7 +393,32 @@
             <div class="an-why">
               <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups — so this check runs before the verdict is trusted.
             </div>
+            <label class="field inline-field">
+              <span class="field-label">Clusterer
+                <span class="hint">k-means assumes convex clusters; switch if classes may be non-convex</span></span>
+              <select id="clusterMethod" class="inp">
+                <option value="kmeans">k-means (convex)</option>
+                <option value="gmm">Gaussian mixture (elliptical)</option>
+                <option value="spectral">spectral (non-convex)</option>
+              </select>
+            </label>
             <div class="an-kmeans-body" id="anKmeansBody"></div>
+          </div>
+
+          <!-- WEIGHTED-MDS TOGGLE + explanation (always visible) -->
+          <div class="an-card" id="wmdsToggleCard">
+            <div class="an-card-head">
+              <h3 data-info-title="weightedmds">Weighted MDS</h3>
+            </div>
+            <label class="check">
+              <input type="checkbox" id="weightedMds">
+              <span>Weight features by class relevance <span class="hint">mutual-information weighted MDS</span></span>
+            </label>
+            <div class="an-why" style="margin-top:8px">
+              <strong>What it does.</strong> Ordinary MDS treats every feature equally when it computes the pairwise distances that drive the layout, so noisy or irrelevant features count as much as informative ones. Weighted MDS scales each feature <em>j</em> by <span class="mono">&radic;w<sub>j</sub></span> before distances are computed, where <span class="mono">w<sub>j</sub></span> is the mutual information between feature <em>j</em> and the class label. The layout is then built from the weighted-Euclidean dissimilarity
+              <div class="formula">d(a,b) = &radic;( &Sigma;<sub>j</sub> w<sub>j</sub> (a<sub>j</sub> &minus; b<sub>j</sub>)&sup2; )</div>
+              so features that carry the class signal dominate the geometry and classes tend to separate more cleanly. <strong>Only the MDS panel changes</strong> — PCA and the high-D fidelity reference stay unweighted, so the error colours still measure distortion from the <em>true</em> geometry, not the reweighted one. The change <em>is</em> measurable: the panel below reports the class silhouette of the plain vs weighted layout, so you can see whether weighting actually improved separation.
+            </div>
           </div>
 
           <!-- WEIGHTED-MDS COMPARISON: shown only when weighted MDS is active -->
@@ -400,11 +447,17 @@
         </section>
 
         <section class="panel" data-panel="histograms" data-group="projquality">
-          <h3 class="panel-title" data-info-title="histograms">Error Distribution</h3>
-          <div class="panel-caption">Distribution of signed error per method, bars centred on their bin value and tinted by the scale. The green line marks the <strong>median</strong> count of an occupied bin, with the two dashed <strong>±2σ</strong> lines bounding the shaded band; bars poking above the upper line are unusually tall. Statistics use only non-empty bins, since the errors concentrate in a few bins and most stay empty. Hover any bar for its exact error interval and count.</div>
+          <h3 class="panel-title" data-info-title="histograms">Distortion &amp; Balance</h3>
+          <div class="panel-caption">Instead of the signed error (which cancels FP against FN), these show the two components directly. <strong>Total distortion</strong> = FP + FN — the overall magnitude, regardless of direction; a projection with a long right tail here distorts many points badly. <strong>Balance</strong> = |FP − FN| / (FP + FN) — how one-sided each point's distortion is: <strong>0</strong> means FP and FN are equal (the point is pulled both ways at once, and its signed error misleadingly reads ≈ 0), <strong>1</strong> means the distortion is entirely intrusion or entirely extrusion. Faithful points (FP = FN = 0) are excluded from balance, since it is undefined for them.</div>
+          <h4 class="hist-row-title">Total distortion (FP + FN)</h4>
           <div class="dual-plot">
-            <div class="plot" id="histPca"></div>
-            <div class="plot" id="histMds"></div>
+            <div class="plot" id="histDistPca"></div>
+            <div class="plot" id="histDistMds"></div>
+          </div>
+          <h4 class="hist-row-title">Balance |FP − FN| / (FP + FN)</h4>
+          <div class="dual-plot">
+            <div class="plot" id="histBalPca"></div>
+            <div class="plot" id="histBalMds"></div>
           </div>
         </section>
 

@@ -140,12 +140,25 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                 n_lab = len(np.unique(y))
                 sil_plain = float(_sil(plain_proj["MDS"], y)) if n_lab > 1 else 0.0
                 sil_weight = float(_sil(proj["MDS"], y)) if n_lab > 1 else 0.0
+                # neighbourhood-preservation F1: does the ADJUSTED (weighted)
+                # distance actually improve projection fidelity -- i.e. reduce
+                # false positives (intrusions) and false negatives (extrusions)?
+                from error_core import per_point_neighbor_metrics as _ppnm2
+                f1_plain = _ppnm2(X_high, plain_proj["MDS"], k=neighbors)["mean"]
+                f1_weight = _ppnm2(X_high, proj["MDS"], k=neighbors)["mean"]
                 mds_compare = {
                     "plain": {"x": plain_proj["MDS"][:, 0].tolist(),
                               "y": plain_proj["MDS"][:, 1].tolist()},
                     "silhouette_plain": round(sil_plain, 4),
                     "silhouette_weighted": round(sil_weight, 4),
                     "delta": round(sil_weight - sil_plain, 4),
+                    "f1_plain": round(f1_plain["f1"], 4),
+                    "f1_weighted": round(f1_weight["f1"], 4),
+                    "f1_delta": round(f1_weight["f1"] - f1_plain["f1"], 4),
+                    "fp_plain": round(1 - f1_plain["precision"], 4),
+                    "fp_weighted": round(1 - f1_weight["precision"], 4),
+                    "fn_plain": round(1 - f1_plain["recall"], 4),
+                    "fn_weighted": round(1 - f1_weight["recall"], 4),
                 }
                 print(f"[weighted MDS] class silhouette: plain={sil_plain:.3f} "
                       f"-> weighted={sil_weight:.3f} (delta {sil_weight-sil_plain:+.3f})")
@@ -158,14 +171,46 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
             class_aware=class_aware, weight=weight, adaptive=adaptive,
             alpha=alpha, beta=beta, return_parts=True)
 
+        # measure how much the geometric and class-aware error modes differ on
+        # this data, so the UI can report it as a concrete number. Compute the
+        # OTHER mode's per-point error and compare.
+        class_aware_delta = None
+        try:
+            other_errs, _, _ = compute_errors(
+                proj, X_high, y, metric=metric, k=neighbors,
+                class_aware=(not class_aware), weight=weight, adaptive=adaptive,
+                alpha=alpha, beta=beta, return_parts=True)
+            # aggregate across both methods
+            import numpy as _np
+            diffs, signflips, n_tot = [], 0, 0
+            for m in ("PCA", "MDS"):
+                a = _np.asarray(errs[m]); b = _np.asarray(other_errs[m])
+                diffs.append(_np.abs(a - b))
+                signflips += int(_np.sum(_np.sign(a) != _np.sign(b)))
+                n_tot += a.size
+            diffs = _np.concatenate(diffs)
+            corr = float(_np.corrcoef(
+                _np.concatenate([_np.asarray(errs[m]) for m in ("PCA","MDS")]),
+                _np.concatenate([_np.asarray(other_errs[m]) for m in ("PCA","MDS")]))[0,1])
+            class_aware_delta = {
+                "active_mode": "class-aware" if class_aware else "geometric",
+                "mean_abs_diff": round(float(_np.mean(diffs)), 4),
+                "sign_flip_pct": round(100.0 * signflips / max(1, n_tot), 1),
+                "correlation": round(corr, 3),
+            }
+        except Exception as cae:
+            print(f"[class-aware delta] skipped ({cae})")
+
         # per-point k distribution (only meaningful when adaptive k is on)
         adaptive_k_dist = None
+        _kv = None
         if adaptive:
             try:
                 from error_core import adaptive_k as _adaptive_k
                 from sklearn.metrics import pairwise_distances as _pdist
                 kv = _adaptive_k(_pdist(X_high, metric="euclidean"), neighbors)
                 kv = np.asarray(kv, dtype=int)
+                _kv = kv
                 # bin into the requested ranges
                 bins = [(3, 5), (6, 8), (9, 12), (13, 100)]
                 bin_labels = ["3-5", "6-8", "9-12", "13+"]
@@ -183,6 +228,21 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                 }
             except Exception as ke:
                 print(f"[adaptive k] distribution skipped ({ke})")
+
+        # per-point neighbourhood-preservation metrics (F1 + Jensen-Shannon),
+        # computed for BOTH projections. This is the "each point is a classifier
+        # of its own neighbourhood" view the projection-quality analysis uses.
+        neighbor_metrics = None
+        try:
+            from error_core import per_point_neighbor_metrics as _ppnm
+            npm_pca = _ppnm(X_high, proj["PCA"], k=neighbors, k_vec=_kv)
+            npm_mds = _ppnm(X_high, proj["MDS"], k=neighbors, k_vec=_kv)
+            neighbor_metrics = {
+                "k": int(neighbors), "adaptive": bool(adaptive),
+                "PCA": npm_pca, "MDS": npm_mds,
+            }
+        except Exception as nme:
+            print(f"[neighbour metrics] skipped ({nme})")
 
         if normalize != "none":
             errs = {m: normalize_errors(e, normalize, norm_scale)
@@ -331,11 +391,22 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
 
     # full per-point table (index, class, coords, err, fp, fn for both methods)
     labels_list = y.tolist()
+    # feature matrix (standardized high-D values) + names, so the UI can filter
+    # points by attribute windows. Round to keep the payload compact.
+    _feat = np.round(np.asarray(X_high, dtype=float), 4)
+    _p = _feat.shape[1]
+    # keep feature payload bounded: cap at 30 columns for very wide data
+    _fcols = list(range(min(_p, 30)))
+    feature_names = [f"f{j}" for j in _fcols]
+    feature_values = _feat[:, _fcols].tolist()
+
     table = {
         "ids": ids.tolist(),
         "labels": labels_list,
         "class_names": [target_names[c] if c < len(target_names) else str(c)
                         for c in labels_list],
+        "feature_names": feature_names,
+        "feature_values": feature_values,
         "pca": {"x": proj["PCA"][:, 0].tolist(), "y": proj["PCA"][:, 1].tolist(),
                 "err": errs["PCA"].tolist(), "fp": fps["PCA"].tolist(),
                 "fn": fns["PCA"].tolist()},
@@ -370,6 +441,8 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         "weight_info": weight_info,
         "mds_compare": mds_compare,
         "adaptive_k_dist": adaptive_k_dist,
+        "class_aware_delta": class_aware_delta,
+        "neighbor_metrics": neighbor_metrics,
         "kmeans": kmeans_res,
         "rel_metrics": rel_res,
         "anneal": anneal_res,

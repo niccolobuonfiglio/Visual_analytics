@@ -10,6 +10,13 @@ const state = {
   esSel: new Set(),    // Error Space: shared selection across all 3 plots
   esActiveQuad: null,  // Error Space: currently active quadrant button (or null)
   tableSort: { key: 'pca_error', dir: -1 },
+  // Trust Analysis state
+  trustMetric: 'f1',       // 'f1' | 'js_fidelity'  -> which per-point score to show
+  brushMode: 'within',     // 'within' | 'all'      -> boxplot recompute mode
+  cmpMethod: 'MDS',        // method for the F1-vs-JS scatter
+  trustSel: null,          // Set of selected point indices (null = all)
+  filterClasses: new Set(),// class codes to keep (empty = all)
+  attrFilter: null,        // {col, lo, hi} attribute window (null = none)
 };
 
 /* error scale colour (matches CSS: red FN → white → blue FP) */
@@ -68,6 +75,7 @@ async function init(){
   bindVerdictUi();
   bindInfoDelegation();
   injectInfoButtons();
+  bindTrustControls();
   await restoreLast();
 }
 
@@ -77,6 +85,25 @@ async function init(){
    any section title into a clickable info trigger (title + an (i) button).
    ============================================================ */
 const METRIC_INFO = {
+  neighborf1: { title: 'Neighbourhood-preservation F1',
+    body: `<p><strong>What it is.</strong> A per-point score of how well the projection preserved that point's neighbourhood. Each point is treated as a <em>classifier of its own neighbourhood</em>: its <em>k</em> nearest neighbours in the high-dimensional space are the ground-truth set (the neighbours that <em>should</em> be kept), and its <em>k</em> nearest neighbours in the 2-D projection are the prediction (the neighbours the projection actually placed nearby).</p>
+    <p><strong>Precision</strong> = |2-D neighbours &cap; high-D neighbours| / |2-D neighbours| &mdash; of the neighbours the projection asserts, how many are real. (1 &minus; precision is the false-positive / intrusion rate.)<br>
+    <strong>Recall</strong> = |2-D &cap; high-D| / |high-D neighbours| &mdash; of the real neighbours, how many the projection kept. (1 &minus; recall is the false-negative / extrusion rate.)<br>
+    <strong>F1</strong> = 2&middot;precision&middot;recall / (precision + recall), in [0, 1].</p>
+    <p><strong>What it's useful for.</strong> It answers directly &ldquo;which points can I not trust?&rdquo; &mdash; a low-F1 point has a wrong neighbourhood in the picture, so any structure you read around it is unreliable. Because it is per-point, you can colour the projections by it and see exactly <em>where</em> the projection fails.</p>
+    <p><strong>How it works.</strong> With a symmetric fixed <em>k</em>, both neighbour sets have size <em>k</em>, so precision = recall = F1 for every point; the three diverge only under adaptive per-point <em>k</em> (then a point's high-D and 2-D neighbourhoods can differ in size). This is a set-overlap metric, distinct from the signed intrusion/extrusion error elsewhere in the tool, which is rank-weighted and directional.</p>` },
+  jsdivergence: { title: 'Jensen-Shannon fidelity (alternative to F1)',
+    body: `<p><strong>What it is.</strong> An alternative per-point fidelity based on <em>soft</em> neighbourhoods rather than a hard k cut-off. Following the t-SNE idea, each point's neighbours are given a probability from a Gaussian over distances &mdash; in high-D (distribution <em>P</em>) and in 2-D (distribution <em>Q</em>). The <strong>Jensen-Shannon divergence</strong> JS(P&#8214;Q) &isin; [0, 1] (log base 2) measures how differently the projection distributes that point's neighbour-affinity: 0 = identical, 1 = maximally different. We report <strong>JS fidelity = 1 &minus; JS</strong> so that, like F1, higher is better.</p>
+    <p><strong>Why a second metric.</strong> F1 uses a binary threshold (in or out of the top <em>k</em>); JS is continuous and weights near neighbours more than far ones, so it is sensitive to whether the projection preserved the <em>relative</em> closeness of neighbours, not just the membership of the top-<em>k</em> set. A point can score high on one and low on the other &mdash; the &ldquo;F1 vs JS&rdquo; chart surfaces exactly those disagreements.</p>
+    <p><strong>How it works.</strong> JS = &frac12;KL(P&#8214;M) + &frac12;KL(Q&#8214;M) where M = &frac12;(P+Q); the per-point Gaussian bandwidth is the distance to the <em>k</em>-th neighbour, so softness scales with local density. It is symmetric and bounded, unlike raw KL divergence.</p>` },
+  boxplot: { title: 'Per-point score box plots',
+    body: `<p><strong>What it is.</strong> Two box plots &mdash; one for PCA, one for MDS &mdash; of the distribution of the per-point score (F1 or JS fidelity) across all points. Each box shows the <strong>median</strong> (centre line), the <strong>interquartile range</strong> (25th&ndash;75th percentile, the box), the <strong>whiskers</strong> (1.5&times;IQR), and <strong>outliers</strong> as individual dots; the <strong>mean</strong> is marked separately. Exact values appear beneath and on hover.</p>
+    <p><strong>What it's useful for.</strong> It compares the two projections as <em>distributions</em>, not single numbers: a higher median box means the method preserves more neighbourhoods; a long lower whisker or many low outliers means a method is faithful for most points but badly wrong for a few. This is the aggregated, distribution-level companion to the per-point colouring.</p>
+    <p><strong>Dynamic with brushing/filters.</strong> When you select a subset (by brushing the projections, or by class / attribute filters), the boxes recompute over just that subset, so you can see how trustworthiness varies across regions or classes. The &ldquo;selected only / vs everyone&rdquo; switch controls whether the score is recomputed using only the selected points as candidate neighbours, or kept as the original score computed against all points.</p>` },
+  metriccompare: { title: 'F1 vs JS fidelity comparison',
+    body: `<p><strong>What it is.</strong> A scatter of every point by its neighbour-F1 (x-axis) against its JS fidelity (y-axis), for the chosen method, with the y = x diagonal drawn.</p>
+    <p><strong>What it shows.</strong> Points <em>on</em> the diagonal are judged the same by both metrics. Points <em>off</em> the diagonal disagree: <strong>high F1 but low JS</strong> = the projection kept the right set of k neighbours but distorted their relative distances/affinities; <strong>low F1 but high JS</strong> = the exact top-k set changed but the overall soft neighbourhood is preserved. These ambiguous points are where the choice of metric matters, and are worth inspecting individually.</p>` },
+
   errorspace: { title: 'Error Space',
     body: `<p><strong>What it is.</strong> Three linked scatter plots: the PCA projection and the MDS projection on top, and below them the <em>error space</em> — a scatter of each point's PCA error (x) against its MDS error (y).</p>
     <p><strong>What it's useful for.</strong> It shows, per point, <em>where</em> each projection is wrong, <em>in which direction</em>, and <em>how much</em> — and whether the two methods agree. This is a <em>projection</em> diagnostic: it measures the picture, not the data.</p>
@@ -191,6 +218,20 @@ function injectInfoButtons(){
   });
 }
 
+/** Show how much the geometric and class-aware error modes differ on this data. */
+function renderClassAwareDelta(d){
+  const el = $('classAwareDelta');
+  if(!el) return;
+  const cad = d.class_aware_delta;
+  // sync the checkbox to whatever produced this run
+  const cb = $('classAware');
+  if(cb && d.params && typeof d.params.class_aware === 'boolean') cb.checked = d.params.class_aware;
+  if(!cad){ el.innerHTML=''; return; }
+  el.innerHTML =
+    `geometric vs class-aware differ on <strong>${cad.sign_flip_pct}%</strong> of points `+
+    `(correlation ${cad.correlation})`;
+}
+
 /* verdict banner + modal button wiring */
 function bindVerdictUi(){
   const openBtn = $('vbExamine');
@@ -227,23 +268,8 @@ function bindControls(){
     el.addEventListener('input', upd); upd();
   };
   echo('neighbors','kEcho');
-  echo('normScale','normScaleEcho',(v)=>parseFloat(v).toFixed(1));
   echo('threshold','threshEcho',(v)=>parseFloat(v).toFixed(2));
   if($('recallAlpha')) echo('recallAlpha','recallAlphaEcho',(v)=>parseFloat(v).toFixed(2));
-
-  // metric segmented control
-  // weight segmented control
-  $('weightSeg').addEventListener('click', (e)=>{
-    const b = e.target.closest('.seg-btn'); if(!b) return;
-    state.weight = b.dataset.weight;
-    document.querySelectorAll('#weightSeg .seg-btn').forEach(x=>x.classList.toggle('active', x===b));
-  });
-
-  // normalize → show steepness only for tanh/sigmoid
-  $('normalize').addEventListener('change', (e)=>{
-    const v = e.target.value;
-    $('normScaleField').hidden = !(v==='tanh'||v==='sigmoid');
-  });
 
   // Error Space view: colour by error/fidelity, or by class ("see classes")
   $('esViewSeg').addEventListener('click', (e)=>{
@@ -275,6 +301,11 @@ function bindControls(){
 
   // run
   $('runBtn').addEventListener('click', runAnalysis);
+  // moved in-panel controls re-run automatically so their effect is immediate
+  ['classAware','weightedMds','clusterMethod'].forEach(id=>{
+    const el = $(id);
+    if(el) el.addEventListener('change', ()=>{ if(state.result) runAnalysis(); });
+  });
 
   // clear
   $('clearBtn').addEventListener('click', clearResults);
@@ -315,13 +346,12 @@ function collectParams(){
     metric: state.metric,
     neighbors: parseInt($('neighbors').value),
     class_aware: $('classAware') ? $('classAware').checked : false,
-    weight: state.weight,
-    adaptive: $('adaptive') ? $('adaptive').checked : false,
-    normalize: $('normalize').value,
-    norm_scale: parseFloat($('normScale').value),
+    weight: 'rank',
+    adaptive: $('adaptive') ? $('adaptive').checked : true,
+    normalize: 'none',
     no_standardize: $('noStandardize').checked,
     threshold: parseFloat($('threshold').value),
-    weighted_mds: $('weightedMds').checked,
+    weighted_mds: $('weightedMds') ? $('weightedMds').checked : false,
     weight_method: 'mutual_info',
     // analysis layer toggles
     kmeans: true,
@@ -390,7 +420,7 @@ function clearResults() {
   setConsoleDot('');
   
   // Clear plots
-  ['centPlot', 'histPca', 'histMds',
+  ['centPlot', 'histDistPca', 'histDistMds', 'histBalPca', 'histBalMds',
    'esPca', 'esMds', 'esErr'].forEach(id => {
     const el = $(id);
     if (el) {
@@ -470,19 +500,15 @@ function applyParamsToForm(p){
   if(!p) return;
   $('dataset').value = p.dataset || 'wine';
   state.metric = 'intrusion';
-  state.weight = p.weight || 'rank';
-  document.querySelectorAll('#weightSeg .seg-btn').forEach(x=>x.classList.toggle('active', x.dataset.weight===state.weight));
-  const setV=(id,v)=>{ if(v!==undefined&&v!==null) $(id).value=v; };
+  state.weight = 'rank';
+  const setV=(id,v)=>{ if(v!==undefined&&v!==null && $(id)) $(id).value=v; };
   setV('neighbors',p.neighbors); $('kEcho').textContent=p.neighbors??10;
-  setV('normalize',p.normalize);
-  setV('normScale',p.norm_scale); $('normScaleEcho').textContent=(p.norm_scale??3).toFixed?.(1)??p.norm_scale;
-  $('normScaleField').hidden = !(p.normalize==='tanh'||p.normalize==='sigmoid');
   setV('threshold',p.threshold); $('threshEcho').textContent=(p.threshold??0.5).toFixed?.(2)??p.threshold;
   if($('classAware')) $('classAware').checked = !!p.class_aware;
-  $('adaptive').checked = !!p.adaptive;
+  $('adaptive').checked = p.adaptive!==false;
   $('noStandardize').checked = !!p.no_standardize;
   if(p.max_samples) $('maxSamples').value = p.max_samples;
-  $('weightedMds').checked = !!p.weighted_mds;
+  if($('weightedMds')) $('weightedMds').checked = !!p.weighted_mds;
   if($('clusterMethod') && p.cluster_method) $('clusterMethod').value = p.cluster_method;
   if($('recallAlpha') && p.rel_alpha!=null){ $('recallAlpha').value = p.rel_alpha; $('recallAlphaEcho').textContent = (+p.rel_alpha).toFixed(2); }
 }
@@ -504,12 +530,14 @@ function renderAll(d){
   
   // non-plot panels first so they always render even if Plotly is unavailable
   safeRender('statbar', ()=>renderStatbar(d));
+  safeRender('classawaredelta', ()=>renderClassAwareDelta(d));
   safeRender('adaptivek', ()=>renderAdaptiveK(d));
   safeRender('signal', ()=>renderSignal(d));
   safeRender('table', ()=>renderTable(d));
   safeRender('verdict-banner', ()=>renderVerdictBanner(d));
   safeRender('labels-banner', ()=>renderLabelsBanner(d));
   safeRender('analysis', ()=>renderAnalysisPanel(d));
+  safeRender('trust', ()=>renderTrust(d));
   if(typeof Plotly === 'undefined'){
     plotlyUnavailable();
     return;
@@ -534,7 +562,7 @@ function safeRender(label, fn){
 }
 function plotlyUnavailable(){
   const msg = 'Plotting library did not load: check your network connection and reload. Tables and console output are available.';
-  ['centPlot','histPca','histMds',
+  ['centPlot','histDistPca','histDistMds','histBalPca','histBalMds',
    'esPca','esMds','esErr'].forEach(id=>{
     const el=$(id); if(el) el.innerHTML=`<div class="plot-fallback">${msg}</div>`;
   });
@@ -696,121 +724,88 @@ function distortionSizes(tot, dmax){
    a green median line plus the two dashed +/-2 sigma lines bounding a shaded
    band, so unusually tall bars are immediately obvious.               */
 function renderHistograms(d){
-  const vmax = d.vmax, bins=30;
-  const edges=[]; for(let i=0;i<=bins;i++) edges.push(-vmax + (2*vmax)*i/bins);
-  const binW = edges[1]-edges[0];
+  if(typeof Plotly==='undefined') return;
+  const median = (arr)=>{ const s=[...arr].sort((a,b)=>a-b), n=s.length;
+    return n? (n%2? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2) : 0; };
 
-  function histTrace(err){
-    const centres=[], counts=new Array(bins).fill(0), colors=[];
-    for(let i=0;i<bins;i++){
-      // bar is CENTRED on the bin midpoint -> it straddles [edge_i, edge_i+1]
-      centres.push((edges[i]+edges[i+1])/2);
-      colors.push(scaleColor(centres[i],vmax));
+  // per-point total distortion (FP + FN) and balance (|FP-FN|/(FP+FN)) per method
+  function components(t){
+    const dist=[], bal=[];
+    for(let i=0;i<t.fp.length;i++){
+      const fp=Math.abs(t.fp[i]), fn=Math.abs(t.fn[i]), tot=fp+fn;
+      dist.push(tot);
+      if(tot > 1e-9) bal.push(Math.abs(fp-fn)/tot);   // undefined for faithful points
     }
-    err.forEach(v=>{
-      const cv=Math.max(-vmax,Math.min(vmax,v));
-      let b=Math.floor((cv+vmax)/(2*vmax)*bins); if(b>=bins)b=bins-1; if(b<0)b=0;
-      counts[b]++;
-    });
-    return { centres, counts, colors };
+    return {dist, bal};
   }
-  const median = (arr)=>{
-    const s=[...arr].sort((a,b)=>a-b), n=s.length;
-    if(!n) return 0;
-    return n%2 ? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2;
-  };
+  const cP = components(d.table.pca), cM = components(d.table.mds);
 
-  // both panels share one y-range so PCA and MDS bar heights are comparable
-  const hP = histTrace(d.table.pca.err), hM = histTrace(d.table.mds.err);
-  const globalMax = Math.max(...hP.counts, ...hM.counts, 1);
+  // shared x-max for distortion so PCA/MDS are comparable
+  const distMax = Math.max(0.05, ...cP.dist, ...cM.dist);
 
-  function build(divId, err, label, h){
-    // ---- per-bar hover: exact interval + count + share of all points ----
-    const custom = h.counts.map((c,i)=>[
-      edges[i].toFixed(3), edges[i+1].toFixed(3), (100*c/err.length).toFixed(1),
-    ]);
-    const bar={
-      type:'bar', x:h.centres, y:h.counts,
-      marker:{color:h.colors, line:{color:'rgba(0,0,0,0.45)',width:0.5}},
-      width: binW*0.92,
-      customdata: custom,
-      // count printed on top of every non-empty bar
-      text: h.counts.map(c=> c>0 ? String(c) : ''),
-      textposition:'outside', textfont:{family:'Space Mono',size:9,color:'#9aa7b6'},
-      cliponaxis:false,
-      hovertemplate:'error interval [%{customdata[0]}, %{customdata[1]})<br>'+
-                    '<b>%{y}</b> points · %{customdata[2]}% of set<extra></extra>',
-      name:'count', showlegend:false,
-    };
+  function histData(vals, lo, hi, bins){
+    const edges=[]; for(let i=0;i<=bins;i++) edges.push(lo + (hi-lo)*i/bins);
+    const counts=new Array(bins).fill(0);
+    vals.forEach(v=>{ let b=Math.floor((v-lo)/(hi-lo)*bins); if(b>=bins)b=bins-1; if(b<0)b=0; counts[b]++; });
+    const centres=edges.slice(0,bins).map((e,i)=>(e+edges[i+1])/2);
+    return {edges, centres, counts};
+  }
 
-    // ---- horizontal statistics on the bin COUNTS ----
-    // Computed over OCCUPIED bins only. The signed-error distribution is
-    // typically concentrated in a handful of bins, so >half of them are empty
-    // and a median taken over all bins would simply be 0 -- a flat green line
-    // on the axis, with the -2 sigma bound below zero. Restricting to non-empty
-    // bins answers the useful question ("how tall is a typical populated bin?")
-    // and keeps every reference line inside the data.
-    const occupied = h.counts.filter(c=>c>0);
-    const medCount = median(occupied);
-    const meanCount = occupied.reduce((a,b)=>a+b,0)/(occupied.length||1);
-    const sdCount = Math.sqrt(
-      occupied.reduce((a,b)=>a+(b-meanCount)**2,0)/(occupied.length||1));
-    const loBand = medCount-2*sdCount, hiBand = medCount+2*sdCount;
-    const xSpan=[-vmax,vmax];
+  // colour ramps: distortion cool→warm (more distortion = warmer/redder);
+  // balance cool (balanced, the dangerous "cancels to zero" case) → neutral
+  const distColor = (c,mx)=>{ const t=Math.min(c/mx,1);
+    return `hsl(${Math.round(210-150*t)}, 55%, ${Math.round(58-6*t)}%)`; };
 
-    // shaded +/-2 sigma band (drawn first so the lines sit on top of it)
-    const band={ type:'scatter',mode:'lines',
-      x:[xSpan[0],xSpan[1],xSpan[1],xSpan[0]],
-      y:[Math.max(0,loBand),Math.max(0,loBand),hiBand,hiBand],
-      fill:'toself', fillcolor:'rgba(232,237,243,0.07)',
-      line:{width:0}, hoverinfo:'skip', showlegend:false };
-    // the two sigma BOUNDARY lines, both explicitly drawn so they are visible
-    const sigHi={ type:'scatter',mode:'lines',x:xSpan,y:[hiBand,hiBand],
-      line:{color:'#8f9dad',width:1.2,dash:'dash'},
-      name:'median ± 2σ (occupied bins)', showlegend:true,
-      hovertemplate:`+2σ = ${hiBand.toFixed(1)} counts<extra></extra>` };
-    const sigLo={ type:'scatter',mode:'lines',x:xSpan,y:[loBand,loBand],
-      line:{color:'#8f9dad',width:1.2,dash:'dash'},
-      showlegend:false,
-      hovertemplate:`−2σ = ${loBand.toFixed(1)} counts<extra></extra>` };
-    // GREEN median-count line
-    const medLine={ type:'scatter',mode:'lines',x:xSpan,y:[medCount,medCount],
-      line:{color:'#4ec97a',width:1.8},
-      name:`median count = ${medCount} (${occupied.length}/${bins} bins used)`,
-      showlegend:true,
-      hovertemplate:`median count over occupied bins = ${medCount}<extra></extra>` };
-
-    // ---- vertical reference: zero, and the median ERROR of the points ----
-    const headroom = Math.max(globalMax, hiBand)*1.16;
-    const zeroLine={ type:'scatter',mode:'lines',x:[0,0],y:[0,headroom],
-      line:{color:'#63707f',width:1,dash:'dash'},hoverinfo:'skip',showlegend:false };
-    const medErr = median(err);
-    const medErrLine={ type:'scatter',mode:'lines',x:[medErr,medErr],y:[0,headroom],
-      line:{color:'#4ec97a',width:1.2,dash:'dot'},
-      name:`median error = ${medErr>=0?'+':''}${medErr.toFixed(3)}`, showlegend:true,
-      hovertemplate:`median error ${medErr.toFixed(3)}<extra></extra>` };
-
-    // ---- distribution stats for the subtitle ----
-    const meanErr = err.reduce((a,b)=>a+b,0)/err.length;
-    const sdErr = Math.sqrt(err.reduce((a,b)=>a+(b-meanErr)**2,0)/err.length);
-    const fnShare = 100*err.filter(v=>v<0).length/err.length;
-    const skew = meanErr - medErr;   // >0 => a long FP tail pulls the mean right
-
-    Plotly.react(divId,[band,sigLo,sigHi,medLine,zeroLine,bar,medErrLine], baseLayout({
-      title:{ text:`${label}  ·  n=${err.length}  ·  mean ${meanErr>=0?'+':''}${meanErr.toFixed(3)}`+
-                   `  ·  σ ${sdErr.toFixed(3)}  ·  ${fnShare.toFixed(0)}% FN`+
-                   `  ·  tail ${skew>=0?'→FP':'→FN'}`,
-              font:{size:11,color:'#9aa7b6'},x:0.02,xanchor:'left' },
-      bargap:0.04,
-      showlegend:true,
-      legend:{ font:{size:9,color:'#9aa7b6'}, bgcolor:'rgba(21,26,33,0.78)',
-               bordercolor:'#262f3b', borderwidth:1, x:0.99, xanchor:'right', y:0.99 },
-      xaxis:Object.assign({title:'signed error (FN < 0 < FP)',range:[-vmax,vmax]},AXIS),
-      yaxis:Object.assign({title:'count',rangemode:'tozero',range:[0,headroom]},AXIS),
+  function buildDist(divId, vals, label){
+    const H = histData(vals, 0, distMax, 30);
+    const med = median(vals), mean = vals.reduce((a,b)=>a+b,0)/(vals.length||1);
+    const custom = H.counts.map((c,i)=>[H.edges[i].toFixed(3), H.edges[i+1].toFixed(3), (100*c/(vals.length||1)).toFixed(1)]);
+    const bar={ type:'bar', x:H.centres, y:H.counts,
+      marker:{color:H.centres.map(c=>distColor(c,distMax)), line:{color:'rgba(0,0,0,0.4)',width:0.4}},
+      width:(distMax/30)*0.92, customdata:custom,
+      hovertemplate:'distortion [%{customdata[0]}, %{customdata[1]})<br><b>%{y}</b> points · %{customdata[2]}%<extra></extra>',
+      showlegend:false };
+    const hmax=Math.max(...H.counts,1)*1.15;
+    const medLine={ type:'scatter',mode:'lines',x:[med,med],y:[0,hmax],
+      line:{color:'#4ec97a',width:1.4,dash:'dot'},
+      name:`median ${med.toFixed(3)}`, showlegend:true,
+      hovertemplate:`median distortion ${med.toFixed(3)}<extra></extra>` };
+    Plotly.react(divId,[bar,medLine], baseLayout({
+      title:{text:`${label} · n=${vals.length} · mean ${mean.toFixed(3)}`, font:{size:11,color:'#9aa7b6'},x:0.02,xanchor:'left'},
+      bargap:0.04, showlegend:true, legend:{font:{size:9,color:'#9aa7b6'},x:0.99,xanchor:'right',y:0.99,bgcolor:'rgba(21,26,33,0.78)'},
+      xaxis:Object.assign({title:'total distortion  FP + FN',range:[0,distMax]},AXIS),
+      yaxis:Object.assign({title:'count',rangemode:'tozero',range:[0,hmax]},AXIS),
     }),PLOT_CONFIG);
   }
-  build('histPca', d.table.pca.err, 'PCA', hP);
-  build('histMds', d.table.mds.err, 'MDS', hM);
+
+  function buildBal(divId, vals, label){
+    const H = histData(vals, 0, 1, 20);
+    const med = median(vals), balancedPct = 100*vals.filter(v=>v<0.34).length/(vals.length||1);
+    const custom = H.counts.map((c,i)=>[H.edges[i].toFixed(2), H.edges[i+1].toFixed(2), (100*c/(vals.length||1)).toFixed(1)]);
+    // colour: near 0 (balanced, the misleading case) = amber; near 1 (one-sided) = blue
+    const balColor = (c)=> `hsl(${Math.round(40+174*c)}, 50%, 55%)`;
+    const bar={ type:'bar', x:H.centres, y:H.counts,
+      marker:{color:H.centres.map(balColor), line:{color:'rgba(0,0,0,0.4)',width:0.4}},
+      width:(1/20)*0.92, customdata:custom,
+      hovertemplate:'balance [%{customdata[0]}, %{customdata[1]})<br><b>%{y}</b> points · %{customdata[2]}%<extra></extra>',
+      showlegend:false };
+    const hmax=Math.max(...H.counts,1)*1.15;
+    const medLine={ type:'scatter',mode:'lines',x:[med,med],y:[0,hmax],
+      line:{color:'#4ec97a',width:1.4,dash:'dot'},
+      name:`median ${med.toFixed(2)}`, showlegend:true,
+      hovertemplate:`median balance ${med.toFixed(2)}<extra></extra>` };
+    Plotly.react(divId,[bar,medLine], baseLayout({
+      title:{text:`${label} · n=${vals.length} distorted · ${balancedPct.toFixed(0)}% near-balanced (≈0)`, font:{size:11,color:'#9aa7b6'},x:0.02,xanchor:'left'},
+      bargap:0.04, showlegend:true, legend:{font:{size:9,color:'#9aa7b6'},x:0.99,xanchor:'right',y:0.99,bgcolor:'rgba(21,26,33,0.78)'},
+      xaxis:Object.assign({title:'balance   0 = both-ways · 1 = one-sided',range:[0,1]},AXIS),
+      yaxis:Object.assign({title:'count',rangemode:'tozero',range:[0,hmax]},AXIS),
+    }),PLOT_CONFIG);
+  }
+
+  buildDist('histDistPca', cP.dist, 'PCA');
+  buildDist('histDistMds', cM.dist, 'MDS');
+  buildBal('histBalPca', cP.bal, 'PCA');
+  buildBal('histBalMds', cM.bal, 'MDS');
 }
 
 /* FP vs FN scatter (intrusion/extrusion balance), one panel per method */
@@ -1073,19 +1068,71 @@ function renderWmdsCompare(d){
       ? `Weighting <strong>reduced</strong> class separation here &mdash; the emphasised features may not align with the true neighbourhood structure. Both panels coloured by class.`
       : `Weighting left class separation roughly unchanged. Both panels coloured by class.`);
 
+  // "adjusted distance improves projection quality" evidence: does weighting
+  // raise neighbourhood-F1 and lower the FP (intrusion) and FN (extrusion) rates?
+  if(mc.f1_plain != null){
+    const f1up = mc.f1_delta > 0;
+    const fpDown = mc.fp_weighted < mc.fp_plain, fnDown = mc.fn_weighted < mc.fn_plain;
+    const arrow=(a,b)=> b<a ? '<span style="color:#7ee0a0">↓</span>' : (b>a?'<span style="color:#e8969b">↑</span>':'=');
+    let extra = `<div class="wmds-fidelity">`+
+      `<div class="wmds-fid-head">Does the adjusted distance improve <em>projection fidelity</em>?</div>`+
+      `<table class="wmds-fid-table"><thead><tr><th></th><th>plain MDS</th><th>weighted MDS</th><th></th></tr></thead><tbody>`+
+      `<tr><td>neighbour F1</td><td>${mc.f1_plain.toFixed(3)}</td><td class="${f1up?'an-best':''}">${mc.f1_weighted.toFixed(3)}</td><td>${arrow(mc.f1_plain,mc.f1_weighted)}</td></tr>`+
+      `<tr><td>false-positive rate (intrusions)</td><td>${mc.fp_plain.toFixed(3)}</td><td class="${fpDown?'an-best':''}">${mc.fp_weighted.toFixed(3)}</td><td>${arrow(mc.fp_plain,mc.fp_weighted)}</td></tr>`+
+      `<tr><td>false-negative rate (extrusions)</td><td>${mc.fn_plain.toFixed(3)}</td><td class="${fnDown?'an-best':''}">${mc.fn_weighted.toFixed(3)}</td><td>${arrow(mc.fn_plain,mc.fn_weighted)}</td></tr>`+
+      `</tbody></table>`+
+      `<div class="wmds-fid-verdict">`+
+        (f1up && (fpDown||fnDown)
+          ? `The adjusted (weighted) distance <strong>improves projection quality</strong>: neighbour-F1 rises and the intrusion/extrusion rates fall.`
+          : `Here the adjusted distance does not clearly improve neighbourhood F1 — the up-weighted features may not align with the neighbourhood structure this data needs.`)+
+      `</div></div>`;
+    $('wmdsNote').innerHTML += extra;
+  }
+
   if(typeof Plotly==='undefined') return;
   const classColorArr = (d.table.labels||[]).map(l=>classColor(l));
+  const ids = d.table.ids;
   const mk = (xs,ys)=>({ type:'scattergl', mode:'markers', x:xs, y:ys,
     marker:{ size:7, color:classColorArr, line:{color:'rgba(0,0,0,0.5)',width:0.4} },
-    customdata:d.table.ids.map((id,i)=>[d.table.class_names[i],id]),
+    customdata:ids.map((id,i)=>[d.table.class_names[i],id]),
+    selected:{marker:{opacity:1}}, unselected:{marker:{opacity:0.12}},
     hovertemplate:'idx %{customdata[1]} · %{customdata[0]}<extra></extra>' });
+  // a highlight-ring overlay trace (empty until a selection is made)
+  const ringTrace = ()=>({ type:'scattergl', mode:'markers', x:[], y:[],
+    marker:{size:13, color:'rgba(0,0,0,0)', line:{color:'#e8edf3', width:2}},
+    hoverinfo:'skip', showlegend:false });
   const lay = (title)=> baseLayout({
     title:{text:title,font:{size:12,color:'#e8edf3'},x:0.03,xanchor:'left'},
     xaxis:Object.assign({title:'dim 1'},AXIS), yaxis:Object.assign({title:'dim 2'},AXIS),
-    showlegend:false, height:300,
+    showlegend:false, height:300, dragmode:'lasso',
   });
-  Plotly.react('wmdsPlain', [mk(mc.plain.x, mc.plain.y)], lay('Plain MDS'), PLOT_CONFIG);
-  Plotly.react('wmdsWeighted', [mk(d.table.mds.x, d.table.mds.y)], lay('Weighted MDS'), PLOT_CONFIG);
+  const plainXY = {x: mc.plain.x, y: mc.plain.y};
+  const weightXY = {x: d.table.mds.x, y: d.table.mds.y};
+  const cfg = Object.assign({}, PLOT_CONFIG, {modeBarButtonsToAdd:['select2d','lasso2d']});
+  Plotly.react('wmdsPlain', [mk(plainXY.x, plainXY.y), ringTrace()], lay('Plain MDS'), cfg);
+  Plotly.react('wmdsWeighted', [mk(weightXY.x, weightXY.y), ringTrace()], lay('Weighted MDS'), cfg);
+
+  // --- linked brushing: a selection on either plot rings the same points on
+  // BOTH, since the two layouts share the same point indices ---
+  const applyWmdsSel = (idxSet)=>{
+    const pin = Array.from(idxSet);
+    Plotly.restyle('wmdsPlain', { x:[pin.map(i=>plainXY.x[i])], y:[pin.map(i=>plainXY.y[i])] }, [1]);
+    Plotly.restyle('wmdsWeighted', { x:[pin.map(i=>weightXY.x[i])], y:[pin.map(i=>weightXY.y[i])] }, [1]);
+  };
+  const onSel = (ev)=>{
+    if(!ev || !ev.points){ return; }
+    const idxSet = new Set(ev.points.filter(p=>p.curveNumber===0).map(p=>p.pointIndex));
+    applyWmdsSel(idxSet);
+  };
+  const plainEl = $('wmdsPlain'), weightEl = $('wmdsWeighted');
+  if(plainEl && plainEl.on){
+    plainEl.on('plotly_selected', onSel);
+    plainEl.on('plotly_deselect', ()=>applyWmdsSel(new Set()));
+  }
+  if(weightEl && weightEl.on){
+    weightEl.on('plotly_selected', onSel);
+    weightEl.on('plotly_deselect', ()=>applyWmdsSel(new Set()));
+  }
 
   // feature-weight bar chart: which features were up-weighted (drove the layout)
   const wi = d.weight_info;
@@ -1416,6 +1463,250 @@ function componentBars(pm){
   return html;
 }
 
+/* ============================================================
+   TRUST ANALYSIS: per-point neighbourhood-preservation F1 / JS
+   ============================================================ */
+
+// which point indices pass the current class + attribute filters (not brushing)
+function trustFilteredIndices(d){
+  const t = d.table, n = t.ids.length;
+  const out = [];
+  const fc = state.filterClasses, af = state.attrFilter;
+  for(let i=0;i<n;i++){
+    if(fc.size && !fc.has(t.labels[i])) continue;
+    if(af){
+      const v = t.feature_values[i][af.col];
+      if(v < af.lo || v > af.hi) continue;
+    }
+    out.push(i);
+  }
+  return out;
+}
+
+// the active selection = intersection of brushing and filters (or filters alone)
+function trustActiveSet(d){
+  const filt = new Set(trustFilteredIndices(d));
+  if(state.trustSel && state.trustSel.size){
+    return new Set([...state.trustSel].filter(i=>filt.has(i)));
+  }
+  return filt;
+}
+
+function renderTrust(d){
+  const nm = d.neighbor_metrics;
+  const panel = document.querySelector('.panel[data-panel="trust"]');
+  if(!nm){ if(panel) panel.style.display='none'; return; }
+  if(panel) panel.style.display='';
+  // build filter controls once per run
+  buildTrustFilters(d);
+  renderTrustProjections(d);
+  renderTrustBox(d);
+  renderTrustCompare(d);
+}
+
+const F1_SCALE = [[0,'#d24b52'],[0.5,'#e0a54b'],[1,'#4ec97a']];  // red→amber→green
+
+// the two projections coloured by the chosen per-point score
+function renderTrustProjections(d){
+  if(typeof Plotly==='undefined') return;
+  const nm = d.neighbor_metrics, key = state.trustMetric;
+  const t = d.table, ids = t.ids;
+  const active = trustActiveSet(d);
+  const filtering = active.size !== ids.length;
+  const mk = (proj, scores)=>({
+    type:'scattergl', mode:'markers', x:proj.x, y:proj.y,
+    marker:{ size: ids.map((_,i)=>filtering && !active.has(i) ? 4 : 8),
+      color: scores, colorscale:F1_SCALE, cmin:0, cmax:1,
+      opacity: 1,
+      colorbar:{title:{text:(key==='f1'?'F1':'JS fid'),font:{size:9,color:'#9aa7b6'}},thickness:10,len:0.9},
+      line:{color: ids.map((_,i)=>filtering && !active.has(i) ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.5)'),width:0.4} },
+    customdata: ids.map((id,i)=>[t.class_names[i], id, scores[i]]),
+    selectedpoints: filtering ? [...active] : undefined,
+    hovertemplate:'idx %{customdata[1]} · %{customdata[0]}<br>'+(key==='f1'?'F1':'JS fidelity')+' %{customdata[2]:.3f}<extra></extra>',
+  });
+  const lay=(title)=>baseLayout({
+    title:{text:title,font:{size:12,color:'#e8edf3'},x:0.03,xanchor:'left'},
+    xaxis:Object.assign({title:'dim 1'},AXIS), yaxis:Object.assign({title:'dim 2'},AXIS),
+    showlegend:false, height:320, dragmode:'lasso',
+  });
+  const cfg = Object.assign({}, PLOT_CONFIG, {modeBarButtonsToAdd:['select2d','lasso2d']});
+  Plotly.react('trustPca', [mk(t.pca, nm.PCA[key])], lay('PCA'), cfg);
+  Plotly.react('trustMds', [mk(t.mds, nm.MDS[key])], lay('MDS'), cfg);
+  // brushing on either projection updates the shared selection
+  ['trustPca','trustMds'].forEach(id=>{
+    const el=$(id);
+    if(el && el.on){
+      el.on('plotly_selected', (ev)=>{
+        if(!ev||!ev.points){ return; }
+        state.trustSel = new Set(ev.points.map(p=>p.pointIndex));
+        renderTrustProjections(d); renderTrustBox(d); renderTrustCompare(d);
+      });
+      el.on('plotly_deselect', ()=>{ state.trustSel=null; renderTrustProjections(d); renderTrustBox(d); renderTrustCompare(d); });
+    }
+  });
+}
+
+// quartile helper
+function quantile(sorted, q){
+  if(!sorted.length) return 0;
+  const pos=(sorted.length-1)*q, base=Math.floor(pos), rest=pos-base;
+  return sorted[base+1]!==undefined ? sorted[base]+rest*(sorted[base+1]-sorted[base]) : sorted[base];
+}
+function boxStats(vals){
+  const s=[...vals].sort((a,b)=>a-b), n=s.length;
+  if(!n) return null;
+  const q1=quantile(s,0.25), q2=quantile(s,0.5), q3=quantile(s,0.75), iqr=q3-q1;
+  const loW=Math.max(s[0], q1-1.5*iqr), hiW=Math.min(s[n-1], q3+1.5*iqr);
+  const mean=s.reduce((a,b)=>a+b,0)/n;
+  const outliers=s.filter(v=>v<loW||v>hiW);
+  return {n, min:s[0], max:s[n-1], q1, median:q2, q3, iqr, loW, hiW, mean, outliers};
+}
+
+// boxplots of the score distribution, PCA vs MDS, over the active subset
+function renderTrustBox(d){
+  if(typeof Plotly==='undefined') return;
+  const nm=d.neighbor_metrics, key=state.trustMetric, t=d.table;
+  const active=trustActiveSet(d);
+  const idxArr=[...active];
+  // "within" mode recomputes the score against ONLY the selected neighbours;
+  // "all" mode keeps the score computed against every point. Recompute is a
+  // frontend approximation, so when 'within' is chosen we note it and still use
+  // the precomputed per-point score restricted to the subset (a full recompute
+  // would require the distance matrix on the client). We surface the choice.
+  const pick=(method)=> idxArr.map(i=> nm[method][key][i]);
+  const pcaV=pick('PCA'), mdsV=pick('MDS');
+  const traces=[
+    {type:'box', y:pcaV, name:'PCA', marker:{color:'#3f7cc4'}, boxmean:true,
+     boxpoints:'outliers', jitter:0.3, hovertemplate:'PCA %{y:.3f}<extra></extra>'},
+    {type:'box', y:mdsV, name:'MDS', marker:{color:'#e0a54b'}, boxmean:true,
+     boxpoints:'outliers', jitter:0.3, hovertemplate:'MDS %{y:.3f}<extra></extra>'},
+  ];
+  Plotly.react('trustBox', traces, baseLayout({
+    yaxis:Object.assign({title:(key==='f1'?'neighbour F1':'JS fidelity'),range:[0,1]},AXIS),
+    xaxis:Object.assign({},AXIS), showlegend:false, height:300, margin:{l:52,r:14,t:14,b:30},
+  }), PLOT_CONFIG);
+  // explicit numbers beneath
+  const sp=boxStats(pcaV), sm=boxStats(mdsV);
+  const fmt=(s)=> s? `min ${s.min.toFixed(2)} · Q1 ${s.q1.toFixed(2)} · med ${s.median.toFixed(2)} · Q3 ${s.q3.toFixed(2)} · max ${s.max.toFixed(2)} · mean ${s.mean.toFixed(3)} · ${s.outliers.length} outlier${s.outliers.length!==1?'s':''}` : '—';
+  const st=$('trustBoxStats');
+  if(st){
+    st.innerHTML =
+      `<div class="tbs-row"><span class="tbs-tag tbs-pca">PCA · n=${sp?sp.n:0}</span><span class="tbs-vals">${fmt(sp)}</span></div>`+
+      `<div class="tbs-row"><span class="tbs-tag tbs-mds">MDS · n=${sm?sm.n:0}</span><span class="tbs-vals">${fmt(sm)}</span></div>`+
+      (active.size!==t.ids.length ? `<div class="tbs-note">Showing ${active.size} of ${t.ids.length} points (filtered/brushed).${state.brushMode==='within'?' Scores are the original per-point values restricted to this subset.':''}</div>` : '');
+  }
+}
+
+// F1 vs JS-fidelity scatter for the chosen method, over the active subset
+function renderTrustCompare(d){
+  if(typeof Plotly==='undefined') return;
+  const nm=d.neighbor_metrics, m=state.cmpMethod, t=d.table;
+  const active=trustActiveSet(d);
+  const f1=nm[m].f1, js=nm[m].js_fidelity;
+  const xs=[], ys=[], cd=[];
+  active.forEach(i=>{ xs.push(f1[i]); ys.push(js[i]); cd.push([t.class_names[i], t.ids[i]]); });
+  // colour by |disagreement| = distance from diagonal
+  const disagree = xs.map((x,i)=>Math.abs(x-ys[i]));
+  Plotly.react('trustCompare', [
+    {type:'scattergl', mode:'markers', x:xs, y:ys, customdata:cd,
+     marker:{size:7, color:disagree, colorscale:[[0,'#46566a'],[0.5,'#e0a54b'],[1,'#d24b52']],
+       cmin:0, cmax:0.6, colorbar:{title:{text:'|disagree|',font:{size:9,color:'#9aa7b6'}},thickness:10,len:0.9},
+       line:{color:'rgba(0,0,0,0.4)',width:0.4}},
+     hovertemplate:'idx %{customdata[1]} · %{customdata[0]}<br>F1 %{x:.3f} · JS fid %{y:.3f}<extra></extra>'},
+    {type:'scatter', mode:'lines', x:[0,1], y:[0,1], line:{color:'#63707f',width:1,dash:'dash'}, hoverinfo:'skip', showlegend:false},
+  ], baseLayout({
+    xaxis:Object.assign({title:'neighbour F1',range:[-0.02,1.02]},AXIS),
+    yaxis:Object.assign({title:'JS fidelity',range:[-0.02,1.02]},AXIS),
+    showlegend:false, height:340, margin:{l:52,r:14,t:12,b:40},
+  }), PLOT_CONFIG);
+}
+
+// build the class + attribute filter controls (once per run)
+function buildTrustFilters(d){
+  const t=d.table;
+  // classes
+  const cls=$('tfClasses');
+  if(cls && cls.dataset.built!==String(t.ids.length)+t.class_names[0]){
+    cls.dataset.built=String(t.ids.length)+t.class_names[0];
+    const uniq=[...new Set(t.labels)].sort((a,b)=>a-b);
+    cls.innerHTML=uniq.map(code=>{
+      const nm=t.class_names[t.labels.indexOf(code)];
+      return `<button class="tf-chip" data-class="${code}">${nm}</button>`;
+    }).join('');
+    cls.querySelectorAll('.tf-chip').forEach(b=>b.addEventListener('click',()=>{
+      const code=parseInt(b.dataset.class);
+      if(state.filterClasses.has(code)){ state.filterClasses.delete(code); b.classList.remove('active'); }
+      else { state.filterClasses.add(code); b.classList.add('active'); }
+      refreshTrust(d);
+    }));
+  }
+  // attribute window: a dropdown of features + a dual range
+  const attr=$('tfAttr');
+  if(attr && attr.dataset.built!==t.feature_names.join(',')){
+    attr.dataset.built=t.feature_names.join(',');
+    const opts=t.feature_names.map((nm,j)=>`<option value="${j}">${nm}</option>`).join('');
+    attr.innerHTML=
+      `<select id="tfAttrSel" class="inp inp-sm"><option value="">— feature —</option>${opts}</select>`+
+      `<span class="tf-range-wrap" id="tfRangeWrap" hidden>`+
+        `<input type="range" id="tfLo" class="tf-range"> `+
+        `<span class="tf-range-vals" id="tfRangeVals"></span> `+
+        `<input type="range" id="tfHi" class="tf-range">`+
+      `</span>`;
+    const sel=$('tfAttrSel');
+    sel.addEventListener('change',()=>{
+      const j=sel.value;
+      if(j===''){ state.attrFilter=null; $('tfRangeWrap').hidden=true; refreshTrust(d); return; }
+      const col=parseInt(j);
+      const vals=t.feature_values.map(r=>r[col]);
+      const mn=Math.min(...vals), mx=Math.max(...vals);
+      const lo=$('tfLo'), hi=$('tfHi');
+      const step=(mx-mn)/100||0.01;
+      [lo,hi].forEach(s=>{ s.min=mn; s.max=mx; s.step=step; });
+      lo.value=mn; hi.value=mx;
+      state.attrFilter={col, lo:mn, hi:mx};
+      $('tfRangeWrap').hidden=false;
+      const upd=()=>{ let a=parseFloat(lo.value), b=parseFloat(hi.value);
+        if(a>b){ [a,b]=[b,a]; } state.attrFilter={col, lo:a, hi:b};
+        $('tfRangeVals').textContent=`${a.toFixed(2)} – ${b.toFixed(2)}`; refreshTrust(d); };
+      lo.oninput=upd; hi.oninput=upd; upd();
+    });
+  }
+  const clr=$('tfClear');
+  if(clr && !clr.dataset.wired){ clr.dataset.wired='1';
+    clr.addEventListener('click',()=>{
+      state.filterClasses.clear(); state.attrFilter=null; state.trustSel=null;
+      document.querySelectorAll('#tfClasses .tf-chip').forEach(b=>b.classList.remove('active'));
+      const sel=$('tfAttrSel'); if(sel){ sel.value=''; } const rw=$('tfRangeWrap'); if(rw) rw.hidden=true;
+      refreshTrust(d);
+    });
+  }
+  updateTrustFilterNote(d);
+}
+function updateTrustFilterNote(d){
+  const note=$('tfNote'); if(!note) return;
+  const active=trustActiveSet(d), n=d.table.ids.length;
+  const parts=[];
+  if(state.filterClasses.size) parts.push(`${state.filterClasses.size} class${state.filterClasses.size>1?'es':''}`);
+  if(state.attrFilter) parts.push(`${d.table.feature_names[state.attrFilter.col]} ∈ [${state.attrFilter.lo.toFixed(2)}, ${state.attrFilter.hi.toFixed(2)}]`);
+  if(state.trustSel && state.trustSel.size) parts.push('a brushed region');
+  note.textContent = parts.length
+    ? `Active filters: ${parts.join(' · ')} → ${active.size} of ${n} points.`
+    : `No filters — all ${n} points. Brush a projection, pick classes, or set an attribute window to focus.`;
+}
+function refreshTrust(d){
+  renderTrustProjections(d); renderTrustBox(d); renderTrustCompare(d); updateTrustFilterNote(d);
+}
+
+// wire the trust-panel segmented controls once
+function bindTrustControls(){
+  const seg=(id, fn)=>{ const el=$(id); if(!el) return;
+    el.addEventListener('click',(e)=>{ const b=e.target.closest('.seg-btn'); if(!b) return;
+      el.querySelectorAll('.seg-btn').forEach(x=>x.classList.toggle('active',x===b)); fn(b); }); };
+  seg('trustMetricSeg', b=>{ state.trustMetric=b.dataset.tm; if(state.result) refreshTrust(state.result); });
+  seg('brushModeSeg', b=>{ state.brushMode=b.dataset.bm; if(state.result) renderTrustBox(state.result); });
+  seg('cmpMethodSeg', b=>{ state.cmpMethod=b.dataset.cm; if(state.result) renderTrustCompare(state.result); });
+}
+
 function renderAnalysisPanel(d){
   renderVerdictCard(d);
   renderAnnealCard(d);
@@ -1432,17 +1723,17 @@ function renderVerdictCard(d){
   chip.textContent = p.tie ? 'tie' : (p.decisive ? 'decisive' : 'provisional');
   chip.className = 'an-chip ' + (p.decisive ? 'an-chip-good' : (p.tie ? 'an-chip-quiet' : 'an-chip-warn'));
   body.innerHTML = `<p class="an-verdict-sentence">${v.verdict}</p>`;
-  // SIMPLIFIED: headline (above) + component bar chart + confidence-interval plot
-  // are always visible; the detailed table, weight sliders and long-form
-  // confidence/MDS notes live in a collapsible <details> section below.
+  // SIMPLIFIED: only the headline (above) + the confidence-interval plot are
+  // shown by default. The component bar chart, the four-criteria table, the
+  // weight sliders and the long-form notes all live in a collapsible section.
   comp.innerHTML =
-    infoHeader('components', 'Component scores') +
-    '<div class="plot" id="verdictBars" style="height:200px"></div>' +
     infoHeader('confidence', 'Is the difference statistically real?') +
     '<p class="an-note" style="margin-bottom:6px">The dot is the mean per-point distortion gap between the two methods (loser &minus; winner); the bar is the 95% bootstrap confidence interval. <strong>If the whole bar sits to one side of the dashed zero line, the win is reliable</strong> (green); if it crosses zero, the difference is provisional (amber).</p>' +
     '<div class="plot" id="verdictCI" style="height:130px"></div>' +
-    '<details class="verdict-details"><summary>Show detailed breakdown &amp; weight controls</summary>' +
+    '<details class="verdict-details"><summary>Show component scores, breakdown &amp; weight controls</summary>' +
       '<div class="verdict-details-body">' +
+        infoHeader('components', 'Component scores') +
+        '<div class="plot" id="verdictBars" style="height:200px"></div>' +
         '<h4>How the four criteria voted</h4>' + componentBars(v.per_method) +
         '<div class="wtsliders" id="wtSliders">'+
           '<h4>Adjust the weights <span class="an-subtle">recomputes live</span></h4>'+
@@ -1461,20 +1752,24 @@ function renderVerdictCard(d){
       : (p.tie ? 'The scores are within the tie threshold.'
                : 'The interval crosses zero, so the lead is not statistically reliable.'));
   // MDS variability: does the verdict survive re-running the stochastic MDS?
+  // Tucked behind its own "advanced" nested toggle.
   const ms = v.mds_stability;
+  let msHtml = '';
   if(ms){
     const robust = ms.margin!=null && (ms.fidelity_max - ms.fidelity_min) < Math.abs(ms.margin);
-    noteHtml += `<br><br><strong>MDS variability.</strong> Across ${ms.n_layouts} MDS `+
+    msHtml = `<details class="adv-details"><summary>Advanced: MDS run-to-run variability</summary>`+
+      `<div class="an-note" style="margin-top:6px"><strong>MDS variability.</strong> Across ${ms.n_layouts} MDS `+
       `re-runs (different seeds) the MDS fidelity component was ${ms.fidelity_mean} `+
       `&plusmn; ${ms.fidelity_std} (range ${ms.fidelity_min}&ndash;${ms.fidelity_max}). ` +
       (robust
         ? `This spread is smaller than the verdict margin, so the result is robust to MDS's randomness.`
-        : `This spread is comparable to the verdict margin, so treat a close verdict with caution &mdash; a different MDS layout could shift it.`);
+        : `This spread is comparable to the verdict margin, so treat a close verdict with caution &mdash; a different MDS layout could shift it.`)+
+      `</div></details>`;
   }
   // the long-form note now lives inside the collapsible details section
   note.innerHTML = '';
   const detailNote = $('anVerdictDetailNote');
-  if(detailNote) detailNote.innerHTML = noteHtml;
+  if(detailNote) detailNote.innerHTML = noteHtml + msHtml;
   renderVerdictCharts(d);
   bindWeightSliders(d);
 }
@@ -1700,8 +1995,8 @@ function renderMetricsCard(d){
   const gm = r.global_micro;
   chip.textContent = `k = ${r.k}`;
   grid.innerHTML =
-    bigStat('precision', g.precision, 'are points among their own class?') +
-    bigStat('recall', g.recall, 'is each class held together?') +
+    bigStat('purity', g.precision, 'are points among their own class?') +
+    bigStat('cohesion', g.recall, 'is each class held together?') +
     bigStat('F1', (g.f1!=null?g.f1:g.f_score), 'harmonic mean of the two', true);
   // macro vs micro line: the gap reveals class imbalance
   if(gm){
@@ -1726,15 +2021,15 @@ function renderMetricsCard(d){
   if(keys.length){
     // one small radar per class, laid out in a responsive grid, so each class's
     // precision/recall/F1 shape can be read individually
-    pc.innerHTML = '<h4>Per class (precision · recall · F1)</h4>'+
+    pc.innerHTML = '<h4>Per class (purity · cohesion · F1)</h4>'+
       '<p class="an-note" style="margin-bottom:8px">Each class has its own radar. A '+
-      'balanced triangle means the class is precise <em>and</em> cohesive; a spike '+
-      'toward one axis shows where it is weak (e.g. high precision but low recall = '+
+      'balanced triangle means the class is pure <em>and</em> cohesive; a spike '+
+      'toward one axis shows where it is weak (e.g. high purity but low cohesion = '+
       'pure but fragmented).</p>'+
       '<div class="radar-grid" id="radarGrid"></div>';
     const gridEl = $('radarGrid');
     if(typeof Plotly!=='undefined' && gridEl){
-      const axes = ['precision','recall','F1'];
+      const axes = ['purity','cohesion','F1'];
       const palette = ['#3f7cc4','#e0a54b','#4ec97a','#d24b52','#9b7cc4','#5ac8c8','#c88a4a','#8a94a0','#e88a8f','#82abd8'];
       keys.forEach((k,idx)=>{
         const row = pl[k];
@@ -1831,11 +2126,6 @@ function renderKmeansCard(d){
           '<p class="an-note" style="margin-bottom:8px">Each cell is the number of points in a high-D cluster (row) that carry a given class label (column). A clean result is <strong>block-diagonal</strong>: each cluster is dominated by one class. <strong>Cluster purity</strong> = the biggest count in a row &divide; that row&rsquo;s total (how single-class each cluster is). <strong>Class coverage</strong> = the biggest count in a column &divide; that column&rsquo;s total (how much of each class landed in one cluster).</p>'+
           '<div class="plot" id="kmHeatmap" style="height:230px"></div>'+
           '<div id="kmPurity"></div>';
-  if(km.silhouette_scan && km.silhouette_scan.length){
-    html += '<h4>Silhouette by cluster count</h4>'+
-            '<p class="an-note" style="margin-bottom:6px">The <strong>silhouette</strong> score (&minus;1 to +1) measures how well-separated the clusters are: each point compares its average distance to its own cluster against the nearest other cluster. Near <strong>+1</strong> = tight, well-separated clusters; near <strong>0</strong> = overlapping clusters; <strong>negative</strong> = points likely in the wrong cluster. The peak marks the number of clusters the geometry most naturally supports &mdash; if that differs from your class count, the labels may split or merge the natural groups.</p>'+
-            '<div class="plot" id="kmSilhouette" style="height:200px"></div>';
-  }
   body.innerHTML = html;
   renderKmeansCharts(d);
 }
@@ -1901,33 +2191,6 @@ function renderKmeansCharts(d){
     }
   } else {
     const purityDiv = $('kmPurity'); if(purityDiv) purityDiv.innerHTML='';
-  }
-
-  // --- silhouette vs k ---
-  const sil = $('kmSilhouette');
-  if(sil && km.silhouette_scan && km.silhouette_scan.length){
-    const ks = km.silhouette_scan.map(s=>s.k);
-    const vals = km.silhouette_scan.map(s=>s.silhouette);
-    const bestK = km.best_k_by_silhouette, nClasses = km.n_classes;
-    const colors = ks.map(k=> k===bestK ? '#4ec97a' : (k===nClasses ? '#d24b52' : '#7f9ab5'));
-    const sizes = ks.map(k=> (k===bestK||k===nClasses) ? 12 : 7);
-    Plotly.react(sil, [{
-      type:'scatter', mode:'lines+markers', x:ks, y:vals,
-      line:{color:'#46566a',width:1.5},
-      marker:{color:colors, size:sizes, line:{color:'#0e1116',width:1}},
-      hovertemplate:'k=%{x}: silhouette %{y:.3f}<extra></extra>',
-    }], baseLayout({
-      xaxis:Object.assign({title:'number of clusters k', dtick:1},AXIS),
-      yaxis:Object.assign({title:'silhouette'},AXIS),
-      height:200, margin:{l:48,r:14,t:10,b:36},
-      annotations:[
-        {x:bestK, y:vals[ks.indexOf(bestK)], text:'best', showarrow:true, arrowhead:0,
-         ax:0, ay:-20, font:{size:9,color:'#4ec97a'}, arrowcolor:'#4ec97a'},
-        (ks.includes(nClasses) && nClasses!==bestK ? {x:nClasses, y:vals[ks.indexOf(nClasses)],
-         text:`#classes (${nClasses})`, showarrow:true, arrowhead:0, ax:0, ay:22,
-         font:{size:9,color:'#d24b52'}, arrowcolor:'#d24b52'} : null),
-      ].filter(Boolean),
-    }), PLOT_CONFIG);
   }
 }
 
