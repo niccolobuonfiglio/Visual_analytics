@@ -187,7 +187,8 @@ def compute_feature_weights(X: NDArray[np.float64],
 
 def build_projections(X: NDArray[np.float64], standardize: bool = True,
                       weighted_mds: bool = False,
-                      feature_weights: Optional[Sequence[float]] = None
+                      feature_weights: Optional[Sequence[float]] = None,
+                      mahalanobis: bool = False
                       ) -> tuple[Projections, NDArray[np.float64]]:
     """Standardize (optional) then return ({'PCA': xy, 'MDS': xy}, X_high).
 
@@ -203,9 +204,32 @@ def build_projections(X: NDArray[np.float64], standardize: bool = True,
     ranking true neighbours in the original space.
     """
     Xp = StandardScaler().fit_transform(X) if standardize else np.asarray(X, float)
+    import time as _time
+    _t0 = _time.perf_counter()
     pca = PCA(n_components=2, random_state=RANDOM_STATE).fit_transform(Xp)
+    _t1 = _time.perf_counter()
 
-    if weighted_mds and feature_weights is not None:
+    if mahalanobis:
+        # MAHALANOBIS distance = whiten by the inverse covariance, so correlated
+        # and high-variance directions are down-weighted (a label-free "adjusted
+        # distance", i.e. unsupervised metric learning). Equivalent to Euclidean
+        # distance on the whitened data.
+        Xc = Xp - Xp.mean(axis=0)
+        cov = np.cov(Xc, rowvar=False)
+        cov = np.atleast_2d(cov)
+        # regularise for invertibility, then symmetric inverse-sqrt whitening
+        cov += np.eye(cov.shape[0]) * 1e-6
+        try:
+            vals, vecs = np.linalg.eigh(cov)
+            vals = np.clip(vals, 1e-8, None)
+            W_white = vecs @ np.diag(1.0 / np.sqrt(vals)) @ vecs.T
+            Xwhite = Xc @ W_white
+        except np.linalg.LinAlgError:
+            Xwhite = Xc
+        D = pairwise_distances(Xwhite, metric="euclidean")
+        mds = MDS(n_components=2, dissimilarity="precomputed", n_init=4,
+                  random_state=RANDOM_STATE).fit_transform(D)
+    elif weighted_mds and feature_weights is not None:
         w = np.clip(np.asarray(feature_weights, dtype=float), 0.0, None)
         Xw = Xp * np.sqrt(w)                       # feature i scaled by sqrt(w_i)
         D = pairwise_distances(Xw, metric="euclidean")
@@ -214,6 +238,11 @@ def build_projections(X: NDArray[np.float64], standardize: bool = True,
     else:
         mds = MDS(n_components=2, dissimilarity="euclidean", n_init=4,
                   random_state=RANDOM_STATE).fit_transform(Xp)
+    _t2 = _time.perf_counter()
+    build_projections.last_timings = {
+        "pca_ms": round((_t1 - _t0) * 1000.0, 2),
+        "mds_ms": round((_t2 - _t1) * 1000.0, 2),
+    }
     return {"PCA": pca, "MDS": mds}, Xp
 
 
@@ -340,16 +369,53 @@ def per_point_neighbor_metrics(X_high: NDArray[np.float64],
     js = np.clip(js, 0.0, 1.0)
     js_fid = 1.0 - js
 
+    # ---- per-point distance correlation (Euclidean-preservation) ----
+    # For each point, the Spearman rank correlation between its distances to all
+    # other points in high-D vs in 2-D. 1 = the projection preserves this point's
+    # distance ordering perfectly; low = its distances are scrambled. Rescaled to
+    # [0, 1] as (corr + 1) / 2 so it reads like the other fidelities.
+    rank_h = np.argsort(np.argsort(Dh, axis=1), axis=1).astype(float)
+    rank_l = np.argsort(np.argsort(Dl, axis=1), axis=1).astype(float)
+    dist_corr = np.zeros(n)
+    for i in range(n):
+        a = rank_h[i]; b = rank_l[i]
+        a = np.delete(a, i); b = np.delete(b, i)
+        sa, sb = a.std(), b.std()
+        if sa > 0 and sb > 0:
+            dist_corr[i] = float(np.corrcoef(a, b)[0, 1])
+    dist_corr = np.clip((dist_corr + 1.0) / 2.0, 0.0, 1.0)
+
+    # ---- per-point Mean Relative Rank Error (MRRE), as a fidelity ----
+    # MRRE penalises rank differences of a point's k nearest neighbours between
+    # the two spaces (a smoother version of trustworthiness/continuity). We report
+    # a per-point fidelity = 1 - normalised-MRRE in [0, 1].
+    mrre_fid = np.zeros(n)
+    order_h_i = np.argsort(Dh, axis=1)
+    for i in range(n):
+        ki = int(k_vec[i]) if k_vec is not None else int(k)
+        ki = max(1, min(ki, n - 1))
+        neigh = order_h_i[i, :ki]
+        # rank of each high-D neighbour in the 2-D ordering (1-based)
+        r_l = rank_l[i, neigh] + 1.0
+        r_h = np.arange(1, ki + 1)
+        err = np.sum(np.abs(r_l - r_h) / r_h)
+        norm = np.sum(np.abs((n - np.arange(1, ki + 1)) ) / np.arange(1, ki + 1)) or 1.0
+        mrre_fid[i] = float(1.0 - min(err / norm, 1.0))
+    mrre_fid = np.clip(mrre_fid, 0.0, 1.0)
+
     return {
         "precision": prec.tolist(),
         "recall": rec.tolist(),
         "f1": f1.tolist(),
         "js": js.tolist(),
         "js_fidelity": js_fid.tolist(),
+        "euclidean": dist_corr.tolist(),
+        "mrre": mrre_fid.tolist(),
         "mean": {
             "precision": float(prec.mean()), "recall": float(rec.mean()),
             "f1": float(f1.mean()), "js": float(js.mean()),
             "js_fidelity": float(js_fid.mean()),
+            "euclidean": float(dist_corr.mean()), "mrre": float(mrre_fid.mean()),
         },
     }
 

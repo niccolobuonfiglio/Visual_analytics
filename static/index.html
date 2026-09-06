@@ -21,15 +21,6 @@
       <p class="mast-sub">Per-point PCA / MDS error on a continuous scale</p>
     </div>
     <div class="mast-right">
-      <div class="signal" id="signal" aria-hidden="true">
-        <div class="signal-label" id="signalLabel">SIGNED-ERROR BALANCE</div>
-        <div class="signal-track">
-          <div class="signal-fn" id="signalFn"></div>
-          <div class="signal-mid"></div>
-          <div class="signal-fp" id="signalFp"></div>
-        </div>
-        <div class="signal-readout" id="signalReadout">awaiting run</div>
-      </div>
     </div>
   </header>
 
@@ -97,28 +88,6 @@
           </label>
         </section>
 
-        <section class="ctl-group">
-          <div class="ctl-group-head">
-            <span class="ctl-num">04</span>
-            <h2>Analysis</h2>
-          </div>
-          <label class="check">
-            <input type="checkbox" id="annealToggle" checked>
-            <span>Search best k <span class="hint">simulated annealing</span></span>
-          </label>
-          <div class="field">
-            <label class="field-label" for="recallAlpha">Recall strictness &alpha;
-              <span class="hint" id="recallAlphaEcho">0.50</span></label>
-            <input type="range" id="recallAlpha" min="0" max="1" step="0.05" value="0.5">
-            <p class="ctl-note" style="margin-top:4px">
-              &alpha; = 0: a class only needs to stay <em>connected</em> (recall is then
-              almost always 1.0, so F1 is driven by precision alone). &alpha; = 1: each
-              class must form a full <em>clique</em>, which makes recall &mdash; and F1
-              &mdash; discriminating. Default 0.5 keeps recall informative.</p>
-          </div>
-          <p class="ctl-note">The verdict, purity/cohesion metrics and the ground-truth check appear in the results tabs; the class-aware, weighted-MDS and clusterer options live next to their charts.</p>
-        </section>
-
       </div>
 
       <!-- Run button at bottom of rail -->
@@ -167,25 +136,10 @@
         </div>
 
         <!-- DATA & LABELS BANNER: do the labels describe the data's structure? -->
-        <div class="verdict-banner labels-banner" id="labelsBanner" hidden>
-          <div class="vb-main">
-            <div class="vb-badge" id="lbBadge">—</div>
-            <div class="vb-text">
-              <div class="vb-headline" id="lbHeadline">Awaiting analysis</div>
-              <div class="vb-sub" id="lbSub"></div>
-            </div>
-          </div>
-          <button class="vb-examine" id="lbExamine">See k-means</button>
-        </div>
 
-        <nav class="tabs" id="tabs">
-          <button class="tab active" data-tab="dataquality">Data Quality</button>
-          <button class="tab" data-tab="projquality">Projection Quality</button>
-          <button class="tab" data-tab="explorer">Point Explorer</button>
-        </nav>
 
-        <div class="tab-intro" id="tabIntro"></div>
 
+        <!-- ERROR SPACE PANEL REMOVED FROM UI (kept for reference):
         <section class="panel" data-panel="errorspace" data-group="projquality">
           <h3 class="panel-title" data-info-title="errorspace">Error Space</h3>
           <div class="panel-caption">Integrated exploration across all three views at once: the <strong>PCA</strong> and <strong>MDS</strong> projections on top, and the <strong>error space</strong> (PCA error vs MDS error) below. Drag a box or lasso on <em>any</em> plot to select points -> the same points ring on all three. Or click a quadrant below to select every point whose PCA/MDS error signs match. Selection detail appears in the shared table.</div>
@@ -228,8 +182,8 @@
             <button class="ghost-btn ghost-btn-sm es-clear" id="esClear">Clear selection</button>
           </div>
 
-          <!-- double-encoding legend: colour = severity-weighted error, size = total distortion -->
-          <!-- VIEW TOGGLE: colour the three plots by error, or by class -->
+          < !-- double-encoding legend: colour = severity-weighted error, size = total distortion -- >
+          < !-- VIEW TOGGLE: colour the three plots by error, or by class -- >
           <div class="es-viewbar">
             <span class="es-viewbar-label">Colour points by</span>
             <span class="seg seg-view" id="esViewSeg" role="tablist">
@@ -277,9 +231,10 @@
             </div>
           </div>
         </section>
+        -->
 
         <!-- TRUST ANALYSIS PANEL: per-point neighbourhood-preservation F1 -->
-        <section class="panel" data-panel="trust" data-group="projquality">
+        <section class="flatpanel" data-panel="trust">
           <h3 class="panel-title" data-info-title="neighborf1">Trust Analysis — which points can I not trust?</h3>
           <div class="panel-caption">Each point acts as a <strong>classifier of its own neighbourhood</strong>: its high-D k-nearest neighbours are the &ldquo;truth&rdquo;, its 2-D k-nearest neighbours are the &ldquo;prediction&rdquo;. <strong>Precision</strong> = fraction of the 2-D neighbours that are real (1&nbsp;&minus;&nbsp;precision = false-positive/intrusion rate); <strong>Recall</strong> = fraction of the real neighbours the projection kept (1&nbsp;&minus;&nbsp;recall = false-negative/extrusion rate); <strong>F1</strong> = their harmonic mean, in [0,1]. A <strong>low-F1 point cannot be trusted</strong> — its neighbourhood in the picture is wrong. Colour below is the per-point F1 (red = untrustworthy, green = faithful).</div>
 
@@ -289,14 +244,16 @@
               <span class="seg seg-sm" id="trustMetricSeg">
                 <button class="seg-btn active" data-tm="f1">neighbour F1</button>
                 <button class="seg-btn" data-tm="js_fidelity">JS fidelity</button>
+                <button class="seg-btn" data-tm="euclidean">dist. corr.</button>
+                <button class="seg-btn" data-tm="mrre">MRRE</button>
               </span>
-              <button class="info-btn" data-info="jsdivergence" title="What is JS fidelity?">i</button>
+              <button class="info-btn" data-info="trustmetrics" title="What do these metrics mean?">i</button>
             </div>
             <div class="trust-ctl-group">
-              <span class="trust-ctl-label">Boxplot: brushed points count</span>
-              <span class="seg seg-sm" id="brushModeSeg">
-                <button class="seg-btn active" data-bm="within">selected only</button>
-                <button class="seg-btn" data-bm="all">vs everyone</button>
+              <span class="trust-ctl-label">Colour by</span>
+              <span class="seg seg-sm" id="trustViewSeg">
+                <button class="seg-btn active" data-tv="score">score</button>
+                <button class="seg-btn" data-tv="class">classes</button>
               </span>
             </div>
           </div>
@@ -306,24 +263,46 @@
             <div class="plot es-plot" id="trustMds"></div>
           </div>
 
-          <h4 data-info-title="boxplot" class="has-info">Distribution of per-point score</h4>
-          <div class="plot" id="trustBox" style="height:300px"></div>
-          <div class="trust-boxstats" id="trustBoxStats"></div>
+          <!-- shared selection table (brush either projection) -->
+          <div class="brush-detail" id="trustDetail">
+            <div class="brush-detail-head">
+              <span id="trustSelCount">No points selected: drag a box or lasso on either plot.</span>
+              <button class="ghost-btn ghost-btn-sm" id="trustSelClear" hidden>Clear selection</button>
+            </div>
+            <div class="table-wrap table-wrap-sm" id="trustSelWrap" hidden>
+              <table class="dtable" id="trustSelTable"><thead></thead><tbody></tbody></table>
+            </div>
+          </div>
 
-          <div class="trust-filters">
-            <div class="tf-head">
-              <span class="tf-title">Filters</span>
-              <button class="ghost-btn ghost-btn-sm" id="tfClear">Clear all</button>
+          <!-- box plots (left) next to filters (right) -->
+          <div class="trust-box-row">
+            <div class="trust-box-col">
+              <h4 data-info-title="boxplot" class="has-info">Distribution of per-point score</h4>
+              <div class="plot" id="trustBox" style="height:210px"></div>
+              <div class="trust-boxstats" id="trustBoxStats"></div>
             </div>
-            <div class="tf-row">
-              <span class="tf-label">By class</span>
-              <div class="tf-classes" id="tfClasses"></div>
+            <div class="trust-filters trust-filters-col">
+              <div class="tf-head">
+                <span class="tf-title">Filters</span>
+                <button class="ghost-btn ghost-btn-sm" id="tfClear">Clear all</button>
+              </div>
+              <div class="tf-row">
+                <span class="tf-label">Boxplot counts</span>
+                <span class="seg seg-sm" id="brushModeSeg">
+                  <button class="seg-btn active" data-bm="within">selected only</button>
+                  <button class="seg-btn" data-bm="all">vs everyone</button>
+                </span>
+              </div>
+              <div class="tf-row">
+                <span class="tf-label">By class</span>
+                <div class="tf-classes" id="tfClasses"></div>
+              </div>
+              <div class="tf-row">
+                <span class="tf-label">By attribute window</span>
+                <div class="tf-attr" id="tfAttr"></div>
+              </div>
+              <p class="tf-note" id="tfNote"></p>
             </div>
-            <div class="tf-row">
-              <span class="tf-label">By attribute window</span>
-              <div class="tf-attr" id="tfAttr"></div>
-            </div>
-            <p class="tf-note" id="tfNote"></p>
           </div>
 
           <h4 data-info-title="metriccompare" class="has-info">F1 vs JS fidelity — where the two metrics disagree</h4>
@@ -339,7 +318,7 @@
         </section>
 
         <!-- VERDICT & ANALYSIS PANEL -->
-        <section class="panel" data-panel="verdict" data-group="projquality">
+        <section class="flatpanel" data-panel="verdict">
           <div class="panel-caption">The mechanical decision on which projection is more faithful for this dataset. This is a <strong>projection</strong> question — it measures the picture, not the data.</div>
 
           <!-- headline verdict card -->
@@ -354,21 +333,9 @@
           </div>
         </section>
 
-        <section class="panel active" data-panel="analysis-data" data-group="dataquality">
+        <section class="flatpanel" data-panel="analysis-data">
           <div class="panel-caption">Is the class structure genuinely present in the data, and do the labels describe it? These are <strong>data</strong> questions — independent of any projection.</div>
 
-          <!-- cluster-structure metrics card -->
-          <div class="an-card" id="anMetricsCard">
-            <div class="an-card-head">
-              <h3 data-info-title="clustermetrics">Cluster-structure metrics &nbsp;<span class="an-subtle">purity · cohesion · F1</span></h3>
-              <span class="an-chip an-chip-quiet" id="anMetricsChip">—</span>
-            </div>
-            <div class="an-why">
-              <strong>What this asks.</strong> Separately from projection fidelity, are the classes genuinely present as clusters in the high-dimensional data? <strong>Purity</strong> asks whether a point is surrounded by its own class (formerly &ldquo;precision&rdquo;); <strong>cohesion</strong> asks whether each class holds together as one connected group (formerly &ldquo;recall&rdquo;); <strong>F1</strong> is their harmonic mean. These are computed on the data itself, so a low score is a property of the data, not of any projection.
-            </div>
-            <div class="an-metrics-grid" id="anMetricsGrid"></div>
-            <div class="an-metrics-perclass" id="anMetricsPerClass"></div>
-          </div>
 
           <!-- simulated annealing card -->
           <div class="an-card" id="anAnnealCard">
@@ -384,7 +351,8 @@
             <div class="an-note" id="anAnnealNote"></div>
           </div>
 
-          <!-- k-means validation card -->
+        <!-- K-MEANS PANEL REMOVED FROM UI (kept for reference):
+          < !-- k-means validation card -- >
           <div class="an-card" id="anKmeansCard">
             <div class="an-card-head">
               <h3 data-info-title="kmeans">Ground-truth check &nbsp;<span class="an-subtle">k-means</span></h3>
@@ -404,27 +372,28 @@
             </label>
             <div class="an-kmeans-body" id="anKmeansBody"></div>
           </div>
+        -->
 
           <!-- WEIGHTED-MDS TOGGLE + explanation (always visible) -->
           <div class="an-card" id="wmdsToggleCard">
             <div class="an-card-head">
-              <h3 data-info-title="weightedmds">Weighted MDS</h3>
+              <h3 data-info-title="mahalanobis">Mahalanobis metric learning</h3>
             </div>
             <label class="check">
               <input type="checkbox" id="weightedMds">
-              <span>Weight features by class relevance <span class="hint">mutual-information weighted MDS</span></span>
+              <span>Use the Mahalanobis (adjusted) distance for MDS <span class="hint">label-free whitening</span></span>
             </label>
             <div class="an-why" style="margin-top:8px">
-              <strong>What it does.</strong> Ordinary MDS treats every feature equally when it computes the pairwise distances that drive the layout, so noisy or irrelevant features count as much as informative ones. Weighted MDS scales each feature <em>j</em> by <span class="mono">&radic;w<sub>j</sub></span> before distances are computed, where <span class="mono">w<sub>j</sub></span> is the mutual information between feature <em>j</em> and the class label. The layout is then built from the weighted-Euclidean dissimilarity
-              <div class="formula">d(a,b) = &radic;( &Sigma;<sub>j</sub> w<sub>j</sub> (a<sub>j</sub> &minus; b<sub>j</sub>)&sup2; )</div>
-              so features that carry the class signal dominate the geometry and classes tend to separate more cleanly. <strong>Only the MDS panel changes</strong> — PCA and the high-D fidelity reference stay unweighted, so the error colours still measure distortion from the <em>true</em> geometry, not the reweighted one. The change <em>is</em> measurable: the panel below reports the class silhouette of the plain vs weighted layout, so you can see whether weighting actually improved separation.
+              <strong>What it does.</strong> Ordinary MDS uses the plain Euclidean distance, so features with a large range or that are highly correlated dominate the layout, and noise counts as much as signal. The <strong>Mahalanobis distance</strong> is the standard <em>adjusted</em> distance: it whitens the space by the inverse covariance, so correlated and high-variance directions are down-weighted and every direction contributes on equal footing.
+              <div class="formula">d(a,b) = &radic;( (a &minus; b)&#7488; &Sigma;&#8315;&sup1; (a &minus; b) )</div>
+              where &Sigma; is the data covariance. This is <strong>label-free</strong> (unsupervised metric learning), so unlike a class-weighted scheme it makes no use of the labels &mdash; the layout is improved purely from the data's own geometry. <strong>Only the MDS panel changes</strong>; PCA and the high-D fidelity reference stay on the plain Euclidean distance, so the per-point trust scores still measure distortion from the <em>true</em> geometry. Whether the adjusted distance actually helps is <strong>measured below</strong>: the panel reports the neighbourhood-F1 and the false-positive/false-negative rates of the plain vs Mahalanobis layout, so you can verify it reduces distortion rather than assuming it does.
             </div>
           </div>
 
-          <!-- WEIGHTED-MDS COMPARISON: shown only when weighted MDS is active -->
+          <!-- MAHALANOBIS COMPARISON: shown only when the adjusted distance is active -->
           <div class="an-card wmds-compare" id="wmdsCompare" hidden>
             <div class="wmds-head">
-              <span class="wmds-title" data-info-title="weightedmds">Weighted MDS &mdash; class separation</span>
+              <span class="wmds-title" data-info-title="mahalanobis">Plain vs Mahalanobis MDS</span>
               <span class="wmds-delta" id="wmdsDelta">&mdash;</span>
             </div>
             <p class="wmds-note" id="wmdsNote"></p>
@@ -432,38 +401,23 @@
               <div class="plot es-plot" id="wmdsPlain"></div>
               <div class="plot es-plot" id="wmdsWeighted"></div>
             </div>
-            <div class="wmds-weights-wrap">
-              <div class="wmds-weights-label">Feature weights (mutual information with the class) &mdash; taller bars drove the layout more</div>
-              <div class="plot" id="wmdsWeights" style="height:180px"></div>
+            <div class="brush-detail" id="wmdsDetail">
+              <div class="brush-detail-head">
+                <span id="wmdsSelCount">No points selected: drag on either layout to compare where the same points land.</span>
+                <button class="ghost-btn ghost-btn-sm" id="wmdsSelClear" hidden>Clear</button>
+              </div>
+              <div class="table-wrap table-wrap-sm" id="wmdsSelWrap" hidden>
+                <table class="dtable" id="wmdsSelTable"><thead></thead><tbody></tbody></table>
+              </div>
             </div>
           </div>
         </section>
 
-        <section class="panel" data-panel="centroids" data-group="projquality">
-          <h3 class="panel-title" data-info-title="centroids">Centroid Trajectories</h3>
-          <div class="panel-caption">Each class centroid traced across high-D (a 2-D PCA view of the class means), PCA and MDS. Every stage is centred and RMS-normalised so the <em>relative</em> class configuration is comparable: a class that drifts far between stages is one a method pulls apart or compresses. The mean between-centroid distance per stage (below) quantifies whether class separation is preserved.</div>
-          <div class="plot plot-wide" id="centPlot"></div>
-          <div class="cent-meta" id="centMeta"></div>
-        </section>
 
-        <section class="panel" data-panel="histograms" data-group="projquality">
-          <h3 class="panel-title" data-info-title="histograms">Distortion &amp; Balance</h3>
-          <div class="panel-caption">Instead of the signed error (which cancels FP against FN), these show the two components directly. <strong>Total distortion</strong> = FP + FN — the overall magnitude, regardless of direction; a projection with a long right tail here distorts many points badly. <strong>Balance</strong> = |FP − FN| / (FP + FN) — how one-sided each point's distortion is: <strong>0</strong> means FP and FN are equal (the point is pulled both ways at once, and its signed error misleadingly reads ≈ 0), <strong>1</strong> means the distortion is entirely intrusion or entirely extrusion. Faithful points (FP = FN = 0) are excluded from balance, since it is undefined for them.</div>
-          <h4 class="hist-row-title">Total distortion (FP + FN)</h4>
-          <div class="dual-plot">
-            <div class="plot" id="histDistPca"></div>
-            <div class="plot" id="histDistMds"></div>
-          </div>
-          <h4 class="hist-row-title">Balance |FP − FN| / (FP + FN)</h4>
-          <div class="dual-plot">
-            <div class="plot" id="histBalPca"></div>
-            <div class="plot" id="histBalMds"></div>
-          </div>
-        </section>
 
-        <section class="panel" data-panel="table" data-group="explorer">
+        <section class="flatpanel" data-panel="table">
           <h3 class="panel-title" data-info-title="untrustworthy">Untrustworthy Points</h3>
-          <div class="panel-caption">Points flagged as untrustworthy, decomposed into intrusion (FP) and extrusion (FN) for each method. <span id="tableMeta"></span></div>
+          <div class="panel-caption">Points you cannot trust, flagged by <strong>low per-point neighbourhood F1</strong> (the worse of the two methods), with each point's F1 and JS fidelity for PCA and MDS. Low = untrustworthy. <span id="tableMeta"></span></div>
           <div class="table-wrap">
             <table class="dtable" id="dtable">
               <thead></thead>

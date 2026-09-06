@@ -1438,3 +1438,19 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 .wmds-fid-table .an-best{ color:#7ee0a0; font-weight:700; }
 .wmds-fid-verdict{ font-size:11.5px; color:var(--ink-dim); margin-top:8px; line-height:1.5; }
 .wmds-fid-verdict strong{ color:#7ee0a0; }
+
+/* flattened single-view panels (no tabs) */
+.flatpanel{ display:block; padding:18px 22px; border-bottom:1px solid var(--line); }
+.flatpanel:last-of-type{ border-bottom:none; }
+
+/* trust box plots (left) beside filters (right) */
+.trust-box-row{ display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; margin:12px 0; }
+.trust-box-col{ min-width:0; }
+.trust-filters-col{ margin:0; }
+.trust-box-col .trust-boxstats{ font-size:10.5px; }
+.trust-box-col .tbs-vals{ font-size:10px; }
+/* trust selection table: compact */
+#trustSelWrap{ max-height:200px; }
+#trustSelTable{ font-size:11px; }
+#trustSelTable th, #trustSelTable td{ padding:3px 8px; }
+@media (max-width: 900px){ .trust-box-row{ grid-template-columns:1fr; } }

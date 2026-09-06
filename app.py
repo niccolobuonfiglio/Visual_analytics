@@ -83,7 +83,8 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     standardize = not bool(params.get("no_standardize", False))
     threshold = float(params.get("threshold", 0.5))
     weighted_mds = bool(params.get("weighted_mds", False))
-    weight_method = params.get("weight_method", "mutual_info")
+    weight_method = params.get("weight_method", "mahalanobis")
+    use_maha = weighted_mds and (weight_method == "mahalanobis")
     custom_weights = params.get("custom_weights") or None
     weight_info = None
     # analysis layer (paper-grounded) toggles
@@ -100,7 +101,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         X, y, ids = maybe_subsample(X, y, max_samples)
 
         feature_weights = None
-        if weighted_mds:
+        if weighted_mds and not use_maha:
             try:
                 # weights are computed on the (optionally standardized) array so
                 # they match the space MDS actually embeds
@@ -126,13 +127,14 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
 
         proj, X_high = build_projections(
             X, standardize=standardize, weighted_mds=weighted_mds,
-            feature_weights=feature_weights)
+            feature_weights=feature_weights, mahalanobis=use_maha)
+        timings = dict(getattr(build_projections, "last_timings", {"pca_ms": 0, "mds_ms": 0}))
 
         # When weighted MDS is active, also compute the PLAIN MDS layout so the
         # UI can show both side by side, and quantify how much class separation
         # changed (silhouette of the labels in each 2-D layout).
         mds_compare = None
-        if weighted_mds and feature_weights is not None:
+        if weighted_mds and (feature_weights is not None or use_maha):
             try:
                 plain_proj, _ = build_projections(
                     X, standardize=standardize, weighted_mds=False)
@@ -147,6 +149,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                 f1_plain = _ppnm2(X_high, plain_proj["MDS"], k=neighbors)["mean"]
                 f1_weight = _ppnm2(X_high, proj["MDS"], k=neighbors)["mean"]
                 mds_compare = {
+                    "method": "Mahalanobis" if use_maha else weight_method,
                     "plain": {"x": plain_proj["MDS"][:, 0].tolist(),
                               "y": plain_proj["MDS"][:, 1].tolist()},
                     "silhouette_plain": round(sil_plain, 4),
@@ -340,10 +343,38 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         except Exception as ve:
             print(f"[verdict] skipped ({ve})")
 
-        # untrustworthy report 
-        report_rows = _report_untrustworthy(
-            pca_err, mds_err, y, target_names, ids, threshold,
-            fps["PCA"], fns["PCA"], fps["MDS"], fns["MDS"])
+        # untrustworthy report — NOW based on the per-point neighbourhood F1
+        # (a low-F1 point cannot be trusted: its neighbourhood in the picture is
+        # wrong), which is far more reliable than the old FP/FN threshold.
+        report_rows = []
+        untrust_desc = "low F1"
+        try:
+            if neighbor_metrics is not None:
+                import numpy as _np2
+                f1_pca = _np2.asarray(neighbor_metrics["PCA"]["f1"])
+                f1_mds = _np2.asarray(neighbor_metrics["MDS"]["f1"])
+                js_pca = _np2.asarray(neighbor_metrics["PCA"]["js_fidelity"])
+                js_mds = _np2.asarray(neighbor_metrics["MDS"]["js_fidelity"])
+                # worst F1 across the two methods per point
+                worst = _np2.minimum(f1_pca, f1_mds)
+                # flag the bottom points: F1 below a data-driven cut
+                # (25th percentile OR < 0.5, whichever flags fewer, capped)
+                cut = min(0.5, float(_np2.percentile(worst, 25)))
+                sel = _np2.where(worst < cut)[0]
+                sel = sel[_np2.argsort(worst[sel])]      # worst first
+                untrust_desc = f"F1 < {cut:.2f} (worst of PCA/MDS)"
+                for i in sel:
+                    report_rows.append({
+                        "index": int(ids[i]),
+                        "true_class": target_names[y[i]] if y[i] < len(target_names) else str(y[i]),
+                        "pca_f1": round(float(f1_pca[i]), 3),
+                        "mds_f1": round(float(f1_mds[i]), 3),
+                        "pca_js": round(float(js_pca[i]), 3),
+                        "mds_js": round(float(js_mds[i]), 3),
+                        "worst_f1": round(float(worst[i]), 3),
+                    })
+        except Exception as ue:
+            print(f"[untrustworthy] F1-based flag skipped ({ue})")
 
     elapsed = time.time() - t0
     console = buf.getvalue() + f"\n[done] pipeline finished in {elapsed:.2f}s"
@@ -443,6 +474,8 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         "adaptive_k_dist": adaptive_k_dist,
         "class_aware_delta": class_aware_delta,
         "neighbor_metrics": neighbor_metrics,
+        "timings": timings,
+        "untrust_desc": untrust_desc,
         "kmeans": kmeans_res,
         "rel_metrics": rel_res,
         "anneal": anneal_res,
