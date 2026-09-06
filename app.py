@@ -90,7 +90,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
     # analysis layer (paper-grounded) toggles
     do_kmeans = bool(params.get("kmeans", True))
     do_relmetrics = bool(params.get("rel_metrics", True))
-    do_anneal = bool(params.get("anneal", False))
+    do_anneal = bool(params.get("anneal", True))
     rel_k = int(params.get("rel_k", 15))
     rel_alpha = float(params.get("rel_alpha", 0.5))
     rel_beta = float(params.get("rel_beta", 1.0))
@@ -125,49 +125,85 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                 feature_weights = None
                 weighted_mds = False
 
+        # MAIN projections always use the PLAIN Euclidean distance, so the trust
+        # analysis, per-point errors and the verdict are always measured against
+        # the true geometry (never the adjusted/weighted one).
         proj, X_high = build_projections(
-            X, standardize=standardize, weighted_mds=weighted_mds,
-            feature_weights=feature_weights, mahalanobis=use_maha)
+            X, standardize=standardize, weighted_mds=False)
         timings = dict(getattr(build_projections, "last_timings", {"pca_ms": 0, "mds_ms": 0}))
 
-        # When weighted MDS is active, also compute the PLAIN MDS layout so the
-        # UI can show both side by side, and quantify how much class separation
-        # changed (silhouette of the labels in each 2-D layout).
+        # The adjusted-distance comparison is ALWAYS computed and shown at the
+        # bottom, independent of any toggle. The METHOD is selectable:
+        #   * 'mahalanobis' — whiten by inverse covariance (label-free)
+        #   * 'locality'    — Laplacian-Score feature weighting (label-free): a
+        #                     feature counts more if it varies little between
+        #                     neighbours (respects the local manifold). Unlike
+        #                     Mahalanobis this down-weights noise, so it tends to
+        #                     help where Mahalanobis hurts.
+        # For 'locality' the per-feature weights may be OVERRIDDEN by the user
+        # (feat_weight_override: {index: multiplier}).
+        adj_method = params.get("adj_method", "locality")
+        feat_override = params.get("feat_weight_override") or {}
         mds_compare = None
-        if weighted_mds and (feature_weights is not None or use_maha):
-            try:
-                plain_proj, _ = build_projections(
-                    X, standardize=standardize, weighted_mds=False)
-                from sklearn.metrics import silhouette_score as _sil
-                n_lab = len(np.unique(y))
-                sil_plain = float(_sil(plain_proj["MDS"], y)) if n_lab > 1 else 0.0
-                sil_weight = float(_sil(proj["MDS"], y)) if n_lab > 1 else 0.0
-                # neighbourhood-preservation F1: does the ADJUSTED (weighted)
-                # distance actually improve projection fidelity -- i.e. reduce
-                # false positives (intrusions) and false negatives (extrusions)?
-                from error_core import per_point_neighbor_metrics as _ppnm2
-                f1_plain = _ppnm2(X_high, plain_proj["MDS"], k=neighbors)["mean"]
-                f1_weight = _ppnm2(X_high, proj["MDS"], k=neighbors)["mean"]
-                mds_compare = {
-                    "method": "Mahalanobis" if use_maha else weight_method,
-                    "plain": {"x": plain_proj["MDS"][:, 0].tolist(),
-                              "y": plain_proj["MDS"][:, 1].tolist()},
-                    "silhouette_plain": round(sil_plain, 4),
-                    "silhouette_weighted": round(sil_weight, 4),
-                    "delta": round(sil_weight - sil_plain, 4),
-                    "f1_plain": round(f1_plain["f1"], 4),
-                    "f1_weighted": round(f1_weight["f1"], 4),
-                    "f1_delta": round(f1_weight["f1"] - f1_plain["f1"], 4),
-                    "fp_plain": round(1 - f1_plain["precision"], 4),
-                    "fp_weighted": round(1 - f1_weight["precision"], 4),
-                    "fn_plain": round(1 - f1_plain["recall"], 4),
-                    "fn_weighted": round(1 - f1_weight["recall"], 4),
-                }
-                print(f"[weighted MDS] class silhouette: plain={sil_plain:.3f} "
-                      f"-> weighted={sil_weight:.3f} (delta {sil_weight-sil_plain:+.3f})")
-            except Exception as ce:
-                print(f"[weighted MDS] could not build comparison ({ce})")
-                mds_compare = None
+        try:
+            from sklearn.metrics import silhouette_score as _sil
+            from error_core import (per_point_neighbor_metrics as _ppnm2,
+                                     locality_feature_weights as _lfw)
+            n_lab = len(np.unique(y))
+            adj_weights = None      # per-feature weights actually used (locality)
+            if adj_method == "mahalanobis":
+                adj_proj, _ = build_projections(
+                    X, standardize=standardize, mahalanobis=True)
+                method_label = "Mahalanobis"
+            else:
+                # locality-based weights, computed on the standardized array
+                from sklearn.preprocessing import StandardScaler as _SS2
+                Xw_src = _SS2().fit_transform(X) if standardize else np.asarray(X, float)
+                base_w = _lfw(Xw_src, k=neighbors)
+                w = base_w.copy()
+                # apply user overrides (multipliers keyed by feature index)
+                for kidx, mult in feat_override.items():
+                    try:
+                        j = int(kidx)
+                        if 0 <= j < w.shape[0]:
+                            w[j] = base_w[j] * float(mult)
+                    except (ValueError, TypeError):
+                        pass
+                adj_weights = [round(float(x), 4) for x in w]
+                adj_proj, _ = build_projections(
+                    X, standardize=standardize, weighted_mds=True,
+                    feature_weights=w)
+                method_label = "Locality-weighted"
+
+            sil_plain = float(_sil(proj["MDS"], y)) if n_lab > 1 else 0.0
+            sil_adj = float(_sil(adj_proj["MDS"], y)) if n_lab > 1 else 0.0
+            f1_plain = _ppnm2(X_high, proj["MDS"], k=neighbors)["mean"]
+            f1_adj = _ppnm2(X_high, adj_proj["MDS"], k=neighbors)["mean"]
+            mds_compare = {
+                "method": method_label,
+                "adj_method": adj_method,
+                "plain": {"x": proj["MDS"][:, 0].tolist(),
+                          "y": proj["MDS"][:, 1].tolist()},
+                "weighted_xy": {"x": adj_proj["MDS"][:, 0].tolist(),
+                                "y": adj_proj["MDS"][:, 1].tolist()},
+                "silhouette_plain": round(sil_plain, 4),
+                "silhouette_weighted": round(sil_adj, 4),
+                "delta": round(sil_adj - sil_plain, 4),
+                "f1_plain": round(f1_plain["f1"], 4),
+                "f1_weighted": round(f1_adj["f1"], 4),
+                "f1_delta": round(f1_adj["f1"] - f1_plain["f1"], 4),
+                "fp_plain": round(1 - f1_plain["precision"], 4),
+                "fp_weighted": round(1 - f1_adj["precision"], 4),
+                "fn_plain": round(1 - f1_plain["recall"], 4),
+                "fn_weighted": round(1 - f1_adj["recall"], 4),
+                "feature_weights": adj_weights,   # None for Mahalanobis
+            }
+            print(f"[{method_label}] plain F1={f1_plain['f1']:.3f} "
+                  f"-> adjusted F1={f1_adj['f1']:.3f}")
+        except Exception as ce:
+            import traceback; traceback.print_exc()
+            print(f"[adjusted MDS] could not build comparison ({ce})")
+            mds_compare = None
 
         errs, fps, fns = compute_errors(
             proj, X_high, y, metric=metric, k=neighbors,

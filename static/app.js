@@ -10,14 +10,21 @@ const state = {
   esSel: new Set(),    // Error Space: shared selection across all 3 plots
   esActiveQuad: null,  // Error Space: currently active quadrant button (or null)
   tableSort: { key: 'worst_f1', dir: 1 },
+  trustSelSort: { key: 'pca', dir: -1 },   // sort of the trust selection table
+  wmdsSelSort: { key: 'move', dir: -1 },   // sort of the Mahalanobis selection table
+  adjMethod: 'locality',   // 'locality' | 'mahalanobis' — adjusted-distance method
+  featWeightOverride: {},  // {featureIndex: multiplier} for locality weighting
   // Trust Analysis state
   trustMetric: 'f1',       // 'f1' | 'js_fidelity' | 'euclidean' | 'mrre'
   trustView: 'score',      // 'score' | 'class' -> colour the trust plots by
   brushMode: 'within',     // 'within' | 'all'      -> boxplot recompute mode
-  cmpMethod: 'MDS',        // method for the F1-vs-JS scatter
+  cmpMethod: 'MDS',        // method for the metric-vs-metric scatter
+  cmpX: 'f1',              // x-axis metric of the comparison scatter
+  cmpY: 'js_fidelity',     // y-axis metric of the comparison scatter
   trustSel: null,          // Set of selected point indices (null = all)
   filterClasses: new Set(),// class codes to keep (empty = all)
   attrFilter: null,        // {col, lo, hi} attribute window (null = none)
+  scoreFilter: null,       // {lo, hi} keep points whose active-metric score (PCA & MDS) is in [lo,hi]
 };
 
 /* error scale colour (matches CSS: red FN → white → blue FP) */
@@ -140,6 +147,15 @@ const METRIC_INFO = {
     body: `<p><strong>What it is.</strong> Each class centroid traced across three stages — high-D → PCA → MDS — on a shared normalised frame.</p>
     <p><strong>What it's useful for.</strong> It separates <em>coarse</em> distortion (how the overall class configuration moves) from the <em>local</em> distortion the per-point metric captures. It shows which method pulls classes apart or compresses them.</p>
     <p><strong>How it works.</strong> High-D centroids are projected via their own PCA so all three stages share a plane; each stage is centred and scaled to unit RMS radius, so the trajectory shows shape change, not absolute size. The mean between-centroid distance per stage indicates whether class separation is preserved.</p>` },
+  adjdist: { title: 'Adjusted-distance MDS (Locality vs Mahalanobis)',
+    body: `<p>Ordinary MDS uses the plain Euclidean distance, so a few dominant or noisy features can drive the whole layout. An <em>adjusted</em> distance reweights the feature space so the projection preserves neighbourhoods better. Both methods here are <strong>label-free</strong> (they use no class labels), and only the MDS panel changes — PCA and the per-point trust scores stay on the true geometry, so they remain an honest reference.</p>
+    <p><strong>Locality weighting (default).</strong> Weights each feature by its <em>Laplacian Score</em> (He, Cai &amp; Niyogi 2005): build a k-NN graph, then score a feature by how little it varies between neighbouring points relative to its total variance. Features that respect the local manifold get more weight; features that vary randomly between neighbours (noise) get less. You can then hand-tune each feature's multiplier.</p>
+    <p><strong>Mahalanobis.</strong> Whitens the space by the inverse covariance, d = √((a−b)ᵀΣ⁻¹(a−b)). It is the classical adjusted distance, but whitening <em>amplifies</em> low-variance directions — which are frequently noise — so on the datasets here it tends to make neighbourhood-F1 <em>worse</em>. The panel measures this rather than assuming it, which is why locality weighting is the default: it succeeds where Mahalanobis fails.</p>
+    <p><strong>How effectiveness is verified.</strong> The panel re-embeds MDS with the adjusted distance and reports the neighbourhood-F1 and the false-positive (intrusion) / false-negative (extrusion) rates of the plain vs adjusted layout, so you can see directly whether the adjusted distance reduces distortion.</p>` },
+  classaware: { title: 'Class-aware trust analysis',
+    body: `<p>By default the trust metrics are <strong>geometric</strong>: a point's neighbours are defined purely by distance, with no assumption that the class labels are correct. Turning on <strong>class-aware</strong> restricts the error to <em>cross-class</em> intrusions (a neighbour of a different class pulled close) and <em>same-class</em> extrusions (a same-class neighbour pushed away), so it measures whether the projection preserved the labelled <em>class</em> structure rather than raw geometry.</p>
+    <p>The two can disagree sharply — a point can be geometrically distorted but class-faithful (its neighbourhood was reshuffled only within its own class), or vice versa.</p>
+    <p><strong>Why k-means appears.</strong> Class-aware scores only make sense if the labels actually correspond to the data's clusters. So when class-aware is on, the k-means ground-truth check is shown: it clusters the data with no labels and reports whether those clusters match the classes (ARI, matched accuracy) and whether each projection preserves the clustering. A low agreement means a poor class-aware score reflects a labelling/geometry mismatch, not the projection's fault.</p>` },
   mahalanobis: { title: 'Mahalanobis metric learning',
     body: `<p><strong>What it is.</strong> An MDS layout built from the <em>Mahalanobis</em> distance instead of the plain Euclidean distance. The Mahalanobis distance is d(a,b) = &radic;((a&minus;b)&#7488; &Sigma;&#8315;&sup1; (a&minus;b)), where &Sigma; is the data covariance &mdash; equivalent to whitening the space (rotating and rescaling by the inverse covariance) and then measuring ordinary distance.</p>
     <p><strong>What it's useful for.</strong> Plain Euclidean distance lets high-variance and correlated directions dominate, so the layout can be driven by a few dominant or redundant features. Mahalanobis puts every direction on equal footing, which is the classical &ldquo;adjusted distance&rdquo; of unsupervised metric learning. Crucially it is <strong>label-free</strong> &mdash; it uses no class labels, only the data's own covariance &mdash; so any improvement is a property of the geometry, not of the labels.</p>
@@ -230,18 +246,65 @@ function injectInfoButtons(){
   });
 }
 
-/** Show how much the geometric and class-aware error modes differ on this data. */
+/** In the trust panel: show the geometric-vs-class-aware divergence, and when
+ *  class-aware is active, surface the k-means ground-truth results. */
 function renderClassAwareDelta(d){
-  const el = $('classAwareDelta');
-  if(!el) return;
-  const cad = d.class_aware_delta;
   // sync the checkbox to whatever produced this run
   const cb = $('classAware');
-  if(cb && d.params && typeof d.params.class_aware === 'boolean') cb.checked = d.params.class_aware;
-  if(!cad){ el.innerHTML=''; return; }
-  el.innerHTML =
-    `geometric vs class-aware differ on <strong>${cad.sign_flip_pct}%</strong> of points `+
-    `(correlation ${cad.correlation})`;
+  const isClassAware = !!(d.params && d.params.class_aware);
+  if(cb && d.params && typeof d.params.class_aware === 'boolean') cb.checked = isClassAware;
+
+  const info = $('classAwareInfo');
+  const cad = d.class_aware_delta;
+  if(info){
+    if(cad){
+      info.hidden = false;
+      info.innerHTML =
+        `<strong>${isClassAware ? 'Class-aware' : 'Geometric'}</strong> fidelity is active. `+
+        `The two modes differ in sign on <strong>${cad.sign_flip_pct}%</strong> of points `+
+        `(correlation ${cad.correlation}) — class-aware counts only cross-class intrusions and same-class extrusions, so it measures whether the labelled <em>class</em> structure survived, not raw geometry.`;
+    } else { info.hidden = true; info.innerHTML=''; }
+  }
+  // legacy element (may be absent now)
+  const el = $('classAwareDelta');
+  if(el && cad) el.innerHTML = `differ on <strong>${cad.sign_flip_pct}%</strong> of points`;
+
+  // k-means results, shown only when class-aware is on
+  renderTrustKmeans(d, isClassAware);
+}
+
+/** Compact k-means ground-truth panel for the trust analysis (class-aware on). */
+function renderTrustKmeans(d, show){
+  const box = $('trustKmeans');
+  if(!box) return;
+  const km = d.kmeans;
+  if(!show || !km){ box.hidden = true; box.innerHTML=''; return; }
+  box.hidden = false;
+  const hi = km.high_d || {};
+  const ariL = hi.ari_vs_labels!=null ? hi.ari_vs_labels.toFixed(3) : '—';
+  const acc  = hi.cluster_accuracy!=null ? (hi.cluster_accuracy*100).toFixed(0)+'%' : '—';
+  const are  = km.classes_are_clusters;
+  const nCls = km.n_classes, silk = km.best_k_by_silhouette;
+  // per-method ARI (does each projection preserve the high-D clustering?)
+  let methodRows = '';
+  if(km.methods){
+    methodRows = Object.keys(km.methods).map(m=>{
+      const a=km.methods[m].ari_vs_high;
+      return `<span class="kmm">${m}: ARI 2-D vs high-D <strong>${a!=null?a.toFixed(3):'—'}</strong></span>`;
+    }).join('');
+  }
+  const verdict = are
+    ? `<span class="km-good">✓ the labels align with the data's natural clusters</span>`
+    : `<span class="km-warn">✗ the labels do <strong>not</strong> match the natural clusters — class-aware scores here reflect a labelling/geometry mismatch, not the projection</span>`;
+  box.innerHTML =
+    `<div class="km-head">k-means ground-truth check <span class="an-subtle">(runs with class-aware)</span></div>`+
+    `<div class="km-stats">`+
+      `<span class="kmm">ARI vs labels <strong>${ariL}</strong></span>`+
+      `<span class="kmm">matched accuracy <strong>${acc}</strong></span>`+
+      `<span class="kmm">natural clusters (silhouette) <strong>${silk}</strong> vs <strong>${nCls}</strong> classes</span>`+
+      methodRows+
+    `</div>`+
+    `<div class="km-verdict">${verdict}</div>`;
 }
 
 /* verdict banner + modal button wiring */
@@ -303,6 +366,15 @@ function bindControls(){
     const el = $(id);
     if(el) el.addEventListener('change', ()=>{ if(state.result) runAnalysis(); });
   });
+  // adjusted-distance method selector (Locality / Mahalanobis) -> re-run
+  const ams=$('adjMethodSeg');
+  if(ams) ams.addEventListener('click',(e)=>{
+    const b=e.target.closest('.seg-btn'); if(!b) return;
+    ams.querySelectorAll('.seg-btn').forEach(x=>x.classList.toggle('active',x===b));
+    state.adjMethod=b.dataset.am;
+    state.featWeightOverride={};   // reset overrides when method changes
+    if(state.result) runAnalysis();
+  });
 
   // clear
   $('clearBtn').addEventListener('click', clearResults);
@@ -350,6 +422,8 @@ function collectParams(){
     threshold: parseFloat($('threshold').value),
     weighted_mds: $('weightedMds') ? $('weightedMds').checked : false,
     weight_method: 'mahalanobis',
+    adj_method: state.adjMethod,
+    feat_weight_override: state.featWeightOverride,
     // analysis layer toggles
     kmeans: true,
     rel_metrics: true,
@@ -1042,9 +1116,51 @@ function renderErrorSpace(d){
 /* Weighted-MDS comparison: plain vs weighted MDS layouts side by side, coloured
    by class, with the silhouette separation change quantified. Only shown when
    the run used weighted MDS. */
+/** Feature-weight editor for the locality-weighted MDS. Shows each feature's
+ *  weight with a multiplier slider; "Apply" re-runs with the overrides. */
+function renderFeatWeights(d){
+  const box=$('featWeights'); if(!box) return;
+  const mc=d.mds_compare;
+  const method = (mc && mc.adj_method) || (d.params && d.params.adj_method) || state.adjMethod;
+  const isLocality = method==='locality';
+  if(!isLocality || !mc || !mc.feature_weights){ box.hidden=true; box.innerHTML=''; return; }
+  box.hidden=false;
+  const w=mc.feature_weights, names=(d.table && d.table.feature_names)||w.map((_,j)=>'f'+j);
+  const ov=state.featWeightOverride||{};
+  let rows = w.map((val,j)=>{
+    const mult = ov[j]!=null ? ov[j] : 1;
+    return `<div class="fw-row"><span class="fw-name">${names[j]}</span>`+
+      `<input type="range" class="fw-slider" data-fw="${j}" min="0" max="3" step="0.1" value="${mult}">`+
+      `<span class="fw-mult" id="fwmult-${j}">×${(+mult).toFixed(1)}</span>`+
+      `<span class="fw-eff">w=${(+val).toFixed(2)}</span></div>`;
+  }).join('');
+  box.innerHTML =
+    `<div class="fw-head">Feature weights <span class="an-subtle">drag to boost/suppress a feature, then apply</span></div>`+
+    `<div class="fw-list">${rows}</div>`+
+    `<div class="fw-actions"><button class="ghost-btn ghost-btn-sm" id="fwReset">Reset weights</button>`+
+    `<button class="run-btn run-btn-sm" id="fwApply">Apply &amp; re-run</button></div>`;
+  box.querySelectorAll('.fw-slider').forEach(s=>{
+    s.addEventListener('input', ()=>{ const el=$(`fwmult-${s.dataset.fw}`); if(el) el.textContent='×'+parseFloat(s.value).toFixed(1); });
+  });
+  const apply=$('fwApply');
+  if(apply) apply.addEventListener('click', ()=>{
+    const o={}; box.querySelectorAll('.fw-slider').forEach(s=>{ const m=parseFloat(s.value); if(Math.abs(m-1)>1e-6) o[s.dataset.fw]=m; });
+    state.featWeightOverride=o; if(state.result) runAnalysis();
+  });
+  const rst=$('fwReset');
+  if(rst) rst.addEventListener('click', ()=>{ state.featWeightOverride={}; if(state.result) runAnalysis(); });
+}
+
 function renderWmdsCompare(d){
   const box = $('wmdsCompare');
   const mc = d.mds_compare;
+  // sync the method selector to the run that produced this
+  const runMethod = (mc && mc.adj_method) || (d.params && d.params.adj_method);
+  if(runMethod){
+    const ams=$('adjMethodSeg');
+    if(ams) ams.querySelectorAll('.seg-btn').forEach(x=>x.classList.toggle('active', x.dataset.am===runMethod));
+  }
+  renderFeatWeights(d);
   if(!mc){ if(box) box.hidden = true; if(typeof Plotly!=='undefined'){ ['wmdsPlain','wmdsWeighted'].forEach(id=>{ const el=$(id); if(el&&el.data) Plotly.purge(el); }); } return; }
   box.hidden = false;
   const dlt = mc.delta;
@@ -1099,7 +1215,9 @@ function renderWmdsCompare(d){
     showlegend:false, height:300, dragmode:'lasso',
   });
   const plainXY = {x: mc.plain.x, y: mc.plain.y};
-  const weightXY = {x: d.table.mds.x, y: d.table.mds.y};
+  const weightXY = mc.weighted_xy
+    ? {x: mc.weighted_xy.x, y: mc.weighted_xy.y}
+    : {x: d.table.mds.x, y: d.table.mds.y};
   const cfg = Object.assign({}, PLOT_CONFIG, {modeBarButtonsToAdd:['select2d','lasso2d']});
   Plotly.react('wmdsPlain', [mk(plainXY.x, plainXY.y), ringTrace()], lay('Plain MDS'), cfg);
   Plotly.react('wmdsWeighted', [mk(weightXY.x, weightXY.y), ringTrace()], lay((mc.method||'Adjusted')+' MDS'), cfg);
@@ -1113,6 +1231,15 @@ function renderWmdsCompare(d){
     Plotly.restyle('wmdsWeighted', { x:[pin.map(i=>weightXY.x[i])], y:[pin.map(i=>weightXY.y[i])] }, [1]);
     renderWmdsSelTable(d, idxSet, plainXY, weightXY);
   };
+  const wmdsClear = ()=>{
+    applyWmdsSel(new Set());
+    if(typeof Plotly!=='undefined'){
+      ['wmdsPlain','wmdsWeighted'].forEach(id=>{ const el=$(id); if(el&&el.data){
+        Plotly.restyle(id, {selectedpoints:[null]}, [0]);
+        try{ Plotly.relayout(id, {selections:[]}); }catch(e){}
+      }});
+    }
+  };
   const onSel = (ev)=>{
     if(!ev || !ev.points){ return; }
     const idxSet = new Set(ev.points.filter(p=>p.curveNumber===0).map(p=>p.pointIndex));
@@ -1121,15 +1248,15 @@ function renderWmdsCompare(d){
   const plainEl = $('wmdsPlain'), weightEl = $('wmdsWeighted');
   if(plainEl && plainEl.on){
     plainEl.on('plotly_selected', onSel);
-    plainEl.on('plotly_deselect', ()=>applyWmdsSel(new Set()));
+    plainEl.on('plotly_deselect', wmdsClear);
   }
   if(weightEl && weightEl.on){
     weightEl.on('plotly_selected', onSel);
-    weightEl.on('plotly_deselect', ()=>applyWmdsSel(new Set()));
+    weightEl.on('plotly_deselect', wmdsClear);
   }
   const clr=$('wmdsSelClear');
   if(clr && !clr.dataset.wired){ clr.dataset.wired='1';
-    clr.addEventListener('click', ()=>applyWmdsSel(new Set())); }
+    clr.addEventListener('click', wmdsClear); }
 }
 
 // selection table for the Mahalanobis comparison: how far each selected point
@@ -1141,23 +1268,44 @@ function renderWmdsSelTable(d, idxSet, plainXY, weightXY){
     head.textContent='No points selected: drag on either layout to compare where the same points land.';
     if(clr) clr.hidden=true; if(wrap) wrap.hidden=true; return;
   }
+  // remember args so header-click sorting can re-render
+  _wmdsSelCtx = {d, idxSet, plainXY, weightXY};
   const t=d.table, nm=d.neighbor_metrics;
   head.innerHTML=`<span class="mono">${idxSet.size}</span> points selected · &Delta;pos = how far the point moved from the plain to the adjusted layout.`;
   if(clr) clr.hidden=false; if(wrap) wrap.hidden=false;
-  const rows=[...idxSet].map(i=>{
+  let rows=[...idxSet].map(i=>{
     const dx=weightXY.x[i]-plainXY.x[i], dy=weightXY.y[i]-plainXY.y[i];
-    return { i, move: Math.hypot(dx,dy), f1: nm?nm.MDS.f1[i]:null };
-  }).sort((a,b)=>b.move-a.move);
+    return { i, index:t.ids[i], cls:t.class_names[i], move: Math.hypot(dx,dy), f1: nm?nm.MDS.f1[i]:0 };
+  });
+  const st=state.wmdsSelSort;
+  rows.sort((a,b)=>{
+    let va=a[st.key], vb=b[st.key];
+    if(typeof va==='string') return st.dir*va.localeCompare(vb);
+    return st.dir*(va-vb);
+  });
+  const cols=[{k:'index',label:'index'},{k:'cls',label:'class'},{k:'move',label:'Δpos'},{k:'f1',label:'MDS F1'}];
   const tbl=$('wmdsSelTable');
-  tbl.querySelector('thead').innerHTML='<tr><th>index</th><th>class</th><th>&Delta;pos</th><th>MDS F1</th></tr>';
+  tbl.querySelector('thead').innerHTML='<tr>'+cols.map(c=>{
+    const cl = st.key===c.k ? (st.dir>0?'sorted-asc':'sorted-desc') : '';
+    return `<th class="th-sort ${cl}" data-wmdssort="${c.k}">${c.label}</th>`;
+  }).join('')+'</tr>';
   tbl.querySelector('tbody').innerHTML=rows.slice(0,200).map(r=>{
     const code=t.labels[r.i];
-    const f1cell = r.f1==null?'—':(()=>{const c=r.f1<0.34?'cell-fn':(r.f1<0.67?'cell-zero':'cell-fp');return `<td class="${c}">${r.f1.toFixed(3)}</td>`;})();
-    return `<tr><td>${t.ids[r.i]}</td>`+
-      `<td class="col-class"><span class="class-chip" style="background:${classColor(code)}"></span>${t.class_names[r.i]}</td>`+
-      `<td>${r.move.toFixed(2)}</td>`+(r.f1==null?'<td>—</td>':f1cell)+'</tr>';
+    const f1cell=(()=>{const c=r.f1<0.34?'cell-fn':(r.f1<0.67?'cell-zero':'cell-fp');return `<td class="${c}">${r.f1.toFixed(3)}</td>`;})();
+    return `<tr><td>${r.index}</td>`+
+      `<td class="col-class"><span class="class-chip" style="background:${classColor(code)}"></span>${r.cls}</td>`+
+      `<td>${r.move.toFixed(2)}</td>`+f1cell+'</tr>';
   }).join('');
+  tbl.querySelectorAll('th[data-wmdssort]').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const k=th.dataset.wmdssort;
+      if(state.wmdsSelSort.key===k) state.wmdsSelSort.dir*=-1;
+      else state.wmdsSelSort={key:k, dir:1};
+      if(_wmdsSelCtx) renderWmdsSelTable(_wmdsSelCtx.d, _wmdsSelCtx.idxSet, _wmdsSelCtx.plainXY, _wmdsSelCtx.weightXY);
+    });
+  });
 }
+let _wmdsSelCtx = null;
 
 /* Adaptive-k distribution: histogram of per-point k values, shown only when
    adaptive k is enabled. Bins 3-5 / 6-8 / 9-12 / 13+, as percentages. */
@@ -1471,12 +1619,18 @@ function componentBars(pm){
 function trustFilteredIndices(d){
   const t = d.table, n = t.ids.length;
   const out = [];
-  const fc = state.filterClasses, af = state.attrFilter;
+  const fc = state.filterClasses, af = state.attrFilter, sf = state.scoreFilter;
+  const nm = d.neighbor_metrics, key = state.trustMetric;
   for(let i=0;i<n;i++){
     if(fc.size && !fc.has(t.labels[i])) continue;
     if(af){
       const v = t.feature_values[i][af.col];
       if(v < af.lo || v > af.hi) continue;
+    }
+    if(sf && nm){
+      // keep only points whose score is within [lo,hi] in BOTH projections
+      const sp = nm.PCA[key][i], sm = nm.MDS[key][i];
+      if(sp < sf.lo || sp > sf.hi || sm < sf.lo || sm > sf.hi) continue;
     }
     out.push(i);
   }
@@ -1508,7 +1662,7 @@ const F1_SCALE = [[0,'#d24b52'],[0.5,'#e0a54b'],[1,'#4ec97a']];  // red→amber�
 
 // the two projections coloured by the chosen per-point score
 const F1_SCALE_LOCAL = [[0,'#d24b52'],[0.5,'#e0a54b'],[1,'#4ec97a']];
-let _trustBound = false;
+const METRIC_KEYS = ['f1','js_fidelity','localstress','mrre'];
 
 function renderTrustProjections(d){
   if(typeof Plotly==='undefined') return;
@@ -1549,35 +1703,51 @@ function renderTrustProjections(d){
   // reflect current selection as rings
   if(state.trustSel && state.trustSel.size) applyTrustRings(d, state.trustSel);
 
-  // bind interaction handlers ONCE (guard prevents the re-render loop / crash)
-  if(!_trustBound){
-    _trustBound = true;
-    const pcaEl=$('trustPca'), mdsEl=$('trustMds');
-    const onSel = (ev)=>{
-      if(!ev || !ev.points){ return; }
-      const idx = new Set(ev.points.filter(p=>p.curveNumber===0).map(p=>p.pointIndex));
-      state.trustSel = idx.size ? idx : null;
-      applyTrustRings(state.result, state.trustSel || new Set());
-      renderTrustBox(state.result); renderTrustCompare(state.result);
-      renderTrustSelTable(state.result); updateTrustFilterNote(state.result);
-    };
-    const onDesel = ()=>{ state.trustSel=null; applyTrustRings(state.result, new Set());
-      renderTrustBox(state.result); renderTrustCompare(state.result);
-      renderTrustSelTable(state.result); updateTrustFilterNote(state.result); };
-    // cross-plot HOVER highlight: hovering a point in one plot rings it in BOTH
-    const onHover = (ev)=>{ if(!ev||!ev.points||!ev.points.length) return;
-      const p=ev.points.find(pt=>pt.curveNumber===0); if(!p) return;
-      applyTrustRings(state.result, new Set([p.pointIndex]), /*hover*/true); };
-    const onUnhover = ()=>{ applyTrustRings(state.result, state.trustSel || new Set()); };
-    [pcaEl, mdsEl].forEach(el=>{
-      if(el && el.on){
-        el.on('plotly_selected', onSel);
-        el.on('plotly_deselect', onDesel);
-        el.on('plotly_hover', onHover);
-        el.on('plotly_unhover', onUnhover);
+  // (Re)bind interaction handlers AFTER every react. scattergl can drop its
+  // selection listeners when the traces are replaced (e.g. on a metric or
+  // colour-by switch), so we clear and re-attach every time rather than once —
+  // this is what makes brushing work under JS fidelity / classes view too.
+  const pcaEl=$('trustPca'), mdsEl=$('trustMds');
+  const onSel = (ev)=>{
+    if(!ev || !ev.points){ return; }
+    const idx = new Set(ev.points.filter(p=>p.curveNumber===0).map(p=>p.pointIndex));
+    state.trustSel = idx.size ? idx : null;
+    applyTrustRings(state.result, state.trustSel || new Set());
+    renderTrustBox(state.result); renderTrustCompare(state.result);
+    renderTrustSelTable(state.result); updateTrustFilterNote(state.result);
+  };
+  const onDesel = ()=>{ clearTrustSelection(); };
+  const onHover = (ev)=>{ if(!ev||!ev.points||!ev.points.length) return;
+    const p=ev.points.find(pt=>pt.curveNumber===0); if(!p) return;
+    const i=p.pointIndex;
+    applyTrustRings(state.result, new Set([i]), /*hover*/true);
+    // show the point's stats (all metrics, both projections) in the readout
+    const ro=$('trustHover'); const r=state.result;
+    if(ro && r){ const nmr=r.neighbor_metrics, tt=r.table;
+      const fmt=(v)=>v.toFixed(3);
+      const metricCells=(mth)=>METRIC_KEYS.map(k=>`${METRIC_LABELS[k]||k} <strong>${fmt(nmr[mth][k][i])}</strong>`).join(' · ');
+      ro.innerHTML =
+        `<span class="hr-idx">idx ${tt.ids[i]}</span> <span class="class-chip" style="background:${classColor(tt.labels[i])}"></span>${tt.class_names[i]}`+
+        `<span class="hr-row"><span class="hr-m">PCA</span> ${metricCells('PCA')}</span>`+
+        `<span class="hr-row"><span class="hr-m">MDS</span> ${metricCells('MDS')}</span>`;
+    }
+  };
+  const onUnhover = ()=>{ applyTrustRings(state.result, state.trustSel || new Set());
+    const ro=$('trustHover'); if(ro) ro.innerHTML='Hover a point to see its scores in both projections; it is highlighted in the other plot too.'; };
+  [pcaEl, mdsEl].forEach(el=>{
+    if(el && el.on){
+      if(el.removeAllListeners){
+        el.removeAllListeners('plotly_selected');
+        el.removeAllListeners('plotly_deselect');
+        el.removeAllListeners('plotly_hover');
+        el.removeAllListeners('plotly_unhover');
       }
-    });
-  }
+      el.on('plotly_selected', onSel);
+      el.on('plotly_deselect', onDesel);
+      el.on('plotly_hover', onHover);
+      el.on('plotly_unhover', onUnhover);
+    }
+  });
 }
 
 // draw highlight rings for a set of point indices on BOTH trust projections
@@ -1605,10 +1775,25 @@ function renderTrustSelTable(d){
   const nm=d.neighbor_metrics, key=state.trustMetric, t=d.table;
   head.innerHTML = `<span class="mono">${sel.size}</span> points selected · scores shown for the active metric (${METRIC_LABELS[key]||key}).`;
   if(clr) clr.hidden = false; if(wrap) wrap.hidden = false;
-  const idx=[...sel].sort((a,b)=> (nm.PCA[key][a]+nm.MDS[key][a]) - (nm.PCA[key][b]+nm.MDS[key][b]));
   const tbl = $('trustSelTable');
-  tbl.querySelector('thead').innerHTML =
-    '<tr><th>index</th><th>class</th><th>PCA</th><th>MDS</th></tr>';
+  // sortable columns
+  const cols=[
+    {k:'index', label:'index', get:i=>t.ids[i]},
+    {k:'class', label:'class', get:i=>t.class_names[i]},
+    {k:'pca',   label:'PCA',   get:i=>nm.PCA[key][i]},
+    {k:'mds',   label:'MDS',   get:i=>nm.MDS[key][i]},
+  ];
+  const st = state.trustSelSort;
+  const col = cols.find(c=>c.k===st.key) || cols[2];
+  const idx=[...sel].sort((a,b)=>{
+    let va=col.get(a), vb=col.get(b);
+    if(typeof va==='string'){ return st.dir*va.localeCompare(vb); }
+    return st.dir*(va-vb);
+  });
+  tbl.querySelector('thead').innerHTML = '<tr>'+cols.map(c=>{
+    const cls = st.key===c.k ? (st.dir>0?'sorted-asc':'sorted-desc') : '';
+    return `<th class="th-sort ${cls}" data-selsort="${c.k}">${c.label}</th>`;
+  }).join('')+'</tr>';
   tbl.querySelector('tbody').innerHTML = idx.slice(0,200).map(i=>{
     const code=t.labels[i];
     const cell=(v)=>{ const c=v<0.34?'cell-fn':(v<0.67?'cell-zero':'cell-fp'); return `<td class="${c}">${v.toFixed(3)}</td>`; };
@@ -1616,10 +1801,19 @@ function renderTrustSelTable(d){
       `<td class="col-class"><span class="class-chip" style="background:${classColor(code)}"></span>${t.class_names[i]}</td>`+
       cell(nm.PCA[key][i])+cell(nm.MDS[key][i])+'</tr>';
   }).join('');
+  // header click -> sort
+  tbl.querySelectorAll('th[data-selsort]').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const k=th.dataset.selsort;
+      if(state.trustSelSort.key===k) state.trustSelSort.dir*=-1;
+      else state.trustSelSort={key:k, dir:1};
+      renderTrustSelTable(d);
+    });
+  });
 }
 
 const METRIC_LABELS = { f1:'neighbour F1', js_fidelity:'JS fidelity',
-  euclidean:'dist. corr.', mrre:'MRRE' };
+  localstress:'local stress', mrre:'MRRE' };
 
 // quartile helper
 function quantile(sorted, q){
@@ -1683,26 +1877,56 @@ function renderTrustCompare(d){
   if(typeof Plotly==='undefined') return;
   const nm=d.neighbor_metrics, m=state.cmpMethod, t=d.table;
   const active=trustActiveSet(d);
-  const f1=nm[m].f1, js=nm[m].js_fidelity;
+  const xKey=state.cmpX, yKey=state.cmpY;
+  const xArr=nm[m][xKey], yArr=nm[m][yKey];
   const xs=[], ys=[], cd=[];
-  active.forEach(i=>{ xs.push(f1[i]); ys.push(js[i]); cd.push([t.class_names[i], t.ids[i]]); });
-  // colour by |disagreement| = distance from diagonal
+  active.forEach(i=>{ xs.push(xArr[i]); ys.push(yArr[i]); cd.push([t.class_names[i], t.ids[i]]); });
+  const xLab=METRIC_LABELS[xKey]||xKey, yLab=METRIC_LABELS[yKey]||yKey;
+  // colour by |disagreement| = distance from the y=x diagonal
   const disagree = xs.map((x,i)=>Math.abs(x-ys[i]));
+  const same = xKey===yKey;
   Plotly.react('trustCompare', [
     {type:'scattergl', mode:'markers', x:xs, y:ys, customdata:cd,
-     marker:{size:7, color:disagree, colorscale:[[0,'#46566a'],[0.5,'#e0a54b'],[1,'#d24b52']],
-       cmin:0, cmax:0.6, colorbar:{title:{text:'|disagree|',font:{size:9,color:'#9aa7b6'}},thickness:10,len:0.9},
+     marker:{size:7, color: same?'#46566a':disagree, colorscale:[[0,'#46566a'],[0.5,'#e0a54b'],[1,'#d24b52']],
+       cmin:0, cmax:0.6, showscale: !same,
+       colorbar: same?undefined:{title:{text:'|disagree|',font:{size:9,color:'#9aa7b6'}},thickness:10,len:0.9},
        line:{color:'rgba(0,0,0,0.4)',width:0.4}},
-     hovertemplate:'idx %{customdata[1]} · %{customdata[0]}<br>F1 %{x:.3f} · JS fid %{y:.3f}<extra></extra>'},
+     hovertemplate:'idx %{customdata[1]} · %{customdata[0]}<br>'+xLab+' %{x:.3f} · '+yLab+' %{y:.3f}<extra></extra>'},
     {type:'scatter', mode:'lines', x:[0,1], y:[0,1], line:{color:'#63707f',width:1,dash:'dash'}, hoverinfo:'skip', showlegend:false},
   ], baseLayout({
-    xaxis:Object.assign({title:'neighbour F1',range:[-0.02,1.02]},AXIS),
-    yaxis:Object.assign({title:'JS fidelity',range:[-0.02,1.02]},AXIS),
+    xaxis:Object.assign({title:xLab,range:[-0.02,1.02]},AXIS),
+    yaxis:Object.assign({title:yLab,range:[-0.02,1.02]},AXIS),
     showlegend:false, height:340, margin:{l:52,r:14,t:12,b:40},
   }), PLOT_CONFIG);
 }
 
-// build the class + attribute filter controls (once per run)
+// Build a clean dual-range control (two handles, min never exceeds max — they
+// may be equal). Returns the wrapper element; calls onChange(lo, hi) live.
+function makeDualRange(min, max, onChange){
+  const step = (max - min) / 100 || 0.01;
+  const wrap = document.createElement('span');
+  wrap.className = 'dual-range';
+  wrap.innerHTML =
+    `<input type="range" class="dr-lo" min="${min}" max="${max}" step="${step}" value="${min}">`+
+    `<input type="range" class="dr-hi" min="${min}" max="${max}" step="${step}" value="${max}">`+
+    `<span class="dr-vals"></span>`;
+  const lo = wrap.querySelector('.dr-lo'), hi = wrap.querySelector('.dr-hi');
+  const vals = wrap.querySelector('.dr-vals');
+  const fmt = (max - min) >= 100 ? 0 : 2;
+  const upd = ()=>{
+    let a = parseFloat(lo.value), b = parseFloat(hi.value);
+    // clamp: lo may not exceed hi and hi may not go below lo (equal is allowed)
+    if(a > b){ if(document.activeElement === lo){ b = a; hi.value = b; } else { a = b; lo.value = a; } }
+    vals.textContent = `${a.toFixed(fmt)} – ${b.toFixed(fmt)}`;
+    onChange(a, b);
+  };
+  lo.addEventListener('input', upd);
+  hi.addEventListener('input', upd);
+  upd();
+  return wrap;
+}
+
+// build the class + score + attribute filter controls (once per run)
 function buildTrustFilters(d){
   const t=d.table;
   // classes
@@ -1721,43 +1945,60 @@ function buildTrustFilters(d){
       refreshTrust(d);
     }));
   }
-  // attribute window: a dropdown of features + a dual range
+
+  // SCORE filter: a 0–1 dual range on the currently-selected metric, keeping
+  // only points whose PCA and MDS score both fall in the window. Rebuilt when
+  // the metric changes (so the label matches).
+  const sc=$('tfScore');
+  if(sc && sc.dataset.metric!==state.trustMetric){
+    sc.dataset.metric=state.trustMetric;
+    state.scoreFilter=null;   // reset when metric changes
+    sc.innerHTML='';
+    sc.appendChild(makeDualRange(0, 1, (a,b)=>{
+      state.scoreFilter = (a<=0 && b>=1) ? null : {lo:a, hi:b};
+      refreshTrust(d);
+    }));
+    const lbl=$('tfScoreMetric'); if(lbl) lbl.textContent='('+(METRIC_LABELS[state.trustMetric]||state.trustMetric)+')';
+  }
+
+  // ATTRIBUTE window: feature dropdown + a clean dual range on that feature
   const attr=$('tfAttr');
   if(attr && attr.dataset.built!==t.feature_names.join(',')){
     attr.dataset.built=t.feature_names.join(',');
     const opts=t.feature_names.map((nm,j)=>`<option value="${j}">${nm}</option>`).join('');
-    attr.innerHTML=
-      `<select id="tfAttrSel" class="inp inp-sm"><option value="">— feature —</option>${opts}</select>`+
-      `<span class="tf-range-wrap" id="tfRangeWrap" hidden>`+
-        `<input type="range" id="tfLo" class="tf-range"> `+
-        `<span class="tf-range-vals" id="tfRangeVals"></span> `+
-        `<input type="range" id="tfHi" class="tf-range">`+
-      `</span>`;
+    attr.innerHTML=`<select id="tfAttrSel" class="inp inp-sm"><option value="">— feature —</option>${opts}</select>`+
+      `<span id="tfAttrRange"></span>`;
     const sel=$('tfAttrSel');
     sel.addEventListener('change',()=>{
       const j=sel.value;
-      if(j===''){ state.attrFilter=null; $('tfRangeWrap').hidden=true; refreshTrust(d); return; }
+      const holder=$('tfAttrRange'); holder.innerHTML='';
+      if(j===''){ state.attrFilter=null; refreshTrust(d); return; }
       const col=parseInt(j);
       const vals=t.feature_values.map(r=>r[col]);
       const mn=Math.min(...vals), mx=Math.max(...vals);
-      const lo=$('tfLo'), hi=$('tfHi');
-      const step=(mx-mn)/100||0.01;
-      [lo,hi].forEach(s=>{ s.min=mn; s.max=mx; s.step=step; });
-      lo.value=mn; hi.value=mx;
       state.attrFilter={col, lo:mn, hi:mx};
-      $('tfRangeWrap').hidden=false;
-      const upd=()=>{ let a=parseFloat(lo.value), b=parseFloat(hi.value);
-        if(a>b){ [a,b]=[b,a]; } state.attrFilter={col, lo:a, hi:b};
-        $('tfRangeVals').textContent=`${a.toFixed(2)} – ${b.toFixed(2)}`; refreshTrust(d); };
-      lo.oninput=upd; hi.oninput=upd; upd();
+      holder.appendChild(makeDualRange(mn, mx, (a,b)=>{
+        state.attrFilter={col, lo:a, hi:b}; refreshTrust(d);
+      }));
     });
   }
+
   const clr=$('tfClear');
   if(clr && !clr.dataset.wired){ clr.dataset.wired='1';
     clr.addEventListener('click',()=>{
-      state.filterClasses.clear(); state.attrFilter=null; state.trustSel=null;
+      state.filterClasses.clear(); state.attrFilter=null; state.scoreFilter=null; state.trustSel=null;
       document.querySelectorAll('#tfClasses .tf-chip').forEach(b=>b.classList.remove('active'));
-      const sel=$('tfAttrSel'); if(sel){ sel.value=''; } const rw=$('tfRangeWrap'); if(rw) rw.hidden=true;
+      const sel=$('tfAttrSel'); if(sel){ sel.value=''; } const ar=$('tfAttrRange'); if(ar) ar.innerHTML='';
+      // rebuild the score range to reset its handles
+      const sc=$('tfScore'); if(sc){ sc.dataset.metric=''; }
+      // clear any lasso/dimming on the plots
+      if(typeof Plotly!=='undefined'){
+        ['trustPca','trustMds'].forEach(id=>{ const el=$(id); if(el&&el.data){
+          Plotly.restyle(id, {selectedpoints:[null]}, [0]);
+          try{ Plotly.relayout(id, {selections:[]}); }catch(e){}
+        }});
+      }
+      buildTrustFilters(d);
       refreshTrust(d);
     });
   }
@@ -1768,11 +2009,12 @@ function updateTrustFilterNote(d){
   const active=trustActiveSet(d), n=d.table.ids.length;
   const parts=[];
   if(state.filterClasses.size) parts.push(`${state.filterClasses.size} class${state.filterClasses.size>1?'es':''}`);
+  if(state.scoreFilter) parts.push(`${METRIC_LABELS[state.trustMetric]||state.trustMetric} ∈ [${state.scoreFilter.lo.toFixed(2)}, ${state.scoreFilter.hi.toFixed(2)}]`);
   if(state.attrFilter) parts.push(`${d.table.feature_names[state.attrFilter.col]} ∈ [${state.attrFilter.lo.toFixed(2)}, ${state.attrFilter.hi.toFixed(2)}]`);
   if(state.trustSel && state.trustSel.size) parts.push('a brushed region');
   note.textContent = parts.length
     ? `Active filters: ${parts.join(' · ')} → ${active.size} of ${n} points.`
-    : `No filters — all ${n} points. Brush a projection, pick classes, or set an attribute window to focus.`;
+    : `No filters — all ${n} points. Brush a projection, pick classes, or set a score / attribute window to focus.`;
 }
 function refreshTrust(d){
   renderTrustProjections(d); renderTrustBox(d); renderTrustCompare(d); updateTrustFilterNote(d);
@@ -1783,19 +2025,41 @@ function bindTrustControls(){
   const seg=(id, fn)=>{ const el=$(id); if(!el) return;
     el.addEventListener('click',(e)=>{ const b=e.target.closest('.seg-btn'); if(!b) return;
       el.querySelectorAll('.seg-btn').forEach(x=>x.classList.toggle('active',x===b)); fn(b); }); };
-  seg('trustMetricSeg', b=>{ state.trustMetric=b.dataset.tm; if(state.result){ renderTrustProjections(state.result); renderTrustBox(state.result); renderTrustSelTable(state.result); } });
+  seg('trustMetricSeg', b=>{ state.trustMetric=b.dataset.tm; if(state.result){ buildTrustFilters(state.result); renderTrustProjections(state.result); renderTrustBox(state.result); renderTrustSelTable(state.result); } });
   seg('trustViewSeg', b=>{ state.trustView=b.dataset.tv; if(state.result) renderTrustProjections(state.result); });
   seg('brushModeSeg', b=>{ state.brushMode=b.dataset.bm; if(state.result) renderTrustBox(state.result); });
   seg('cmpMethodSeg', b=>{ state.cmpMethod=b.dataset.cm; if(state.result) renderTrustCompare(state.result); });
+  const cx=$('cmpXSel'), cy=$('cmpYSel');
+  if(cx) cx.addEventListener('change', ()=>{ state.cmpX=cx.value; if(state.result) renderTrustCompare(state.result); });
+  if(cy) cy.addEventListener('change', ()=>{ state.cmpY=cy.value; if(state.result) renderTrustCompare(state.result); });
   const clr=$('trustSelClear');
-  if(clr) clr.addEventListener('click', ()=>{ state.trustSel=null;
+  if(clr) clr.addEventListener('click', ()=> clearTrustSelection());
+}
+
+// Fully reset the trust plots to their normal state: no selection, no lasso
+// box, uniform marker size, no dimming.
+function clearTrustSelection(){
+  state.trustSel = null;
+  if(typeof Plotly!=='undefined'){
+    ['trustPca','trustMds'].forEach(id=>{
+      const el=$(id); if(!el||!el.data) return;
+      // clear Plotly's selection (removes dimming) and the lasso/box outline
+      Plotly.restyle(id, {selectedpoints:[null]}, [0]);
+      try{ Plotly.relayout(id, {selections:[], dragmode:'lasso'}); }catch(e){}
+    });
+  }
+  // re-render so marker sizes/opacity return to normal, then clear rings
+  if(state.result){
+    renderTrustProjections(state.result);
     applyTrustRings(state.result, new Set());
     renderTrustBox(state.result); renderTrustCompare(state.result);
-    renderTrustSelTable(state.result); updateTrustFilterNote(state.result); });
+    renderTrustSelTable(state.result); updateTrustFilterNote(state.result);
+  }
 }
 
 function renderAnalysisPanel(d){
   renderVerdictCard(d);
+  renderAnnealCard(d);
   renderWmdsCompare(d);
 }
 
@@ -1814,10 +2078,13 @@ function renderVerdictCard(d){
   comp.innerHTML =
     '<h4>The four criteria <span class="an-subtle">click a name to see what it measures</span></h4>' +
     componentBars(v.per_method) +
-    '<div class="wtsliders" id="wtSliders">'+
-      '<h4>Adjust the weights <span class="an-subtle">recomputes live</span></h4>'+
+    '<div class="wtsliders wtsliders-sm" id="wtSliders">'+
+      '<h4>Adjust the weights <span class="an-subtle">must sum to 100% to re-run</span></h4>'+
       wtSliderRow('fidelity', 0.25) + wtSliderRow('trust', 0.25) +
       wtSliderRow('continuity', 0.25) + wtSliderRow('cluster', 0.25) +
+      '<div class="wt-sum-row"><span id="wtSum">sum: 100%</span>'+
+        '<button class="ghost-btn ghost-btn-sm" id="wtReset">Reset to 25% each</button>'+
+        '<button class="run-btn run-btn-sm" id="wtRerun">Re-run verdict</button></div>'+
       '<div class="wt-live" id="wtLive"></div>'+
     '</div>';
   note.innerHTML = '';
@@ -1869,50 +2136,56 @@ function wtSliderRow(name, def){
 function bindWeightSliders(d){
   const box = $('wtSliders'); if(!box) return;
   const v = d.verdict; if(!v || !v.per_method) return;
-  const recompute = ()=>{
+  const readWeights = ()=>{
     const w = {};
     box.querySelectorAll('.wt-slider').forEach(s=>{ w[s.dataset.wt] = parseFloat(s.value); });
-    box.querySelectorAll('.wt-slider').forEach(s=>{
-      const el = $(`wtval-${s.dataset.wt}`); if(el) el.textContent = parseFloat(s.value).toFixed(2);
-    });
+    return w;
+  };
+  // recompute the verdict under the current weights and show it
+  const runVerdict = ()=>{
+    const w = readWeights();
     const total = Object.values(w).reduce((a,b)=>a+b,0) || 1;
     const pm = v.per_method, methods = Object.keys(pm);
     const scores = {};
     methods.forEach(m=>{
-      let s = 0;
-      Object.keys(w).forEach(c=>{
+      let s=0; Object.keys(w).forEach(c=>{
         const cv = pm[m].components && pm[m].components[c]!=null ? pm[m].components[c] : 0;
         s += cv * w[c];
       });
-      scores[m] = s / total;
+      scores[m] = s/total;
     });
-    // determine winner and margin under the new weights
     const ranked = methods.slice().sort((a,b)=>scores[b]-scores[a]);
     const win = ranked[0], lose = ranked[ranked.length-1];
-    const margin = scores[win] - scores[lose];
+    const margin = scores[win]-scores[lose];
     const live = $('wtLive');
     if(live){
-      const origWin = v.winner;
-      const flipped = win !== origWin;
+      const flipped = win !== v.winner;
       live.innerHTML =
         `Under these weights: <strong>${win}</strong> ${methods.length>1?`(${scores[win].toFixed(3)}) vs ${lose} (${scores[lose].toFixed(3)})`:''}, `+
         `margin ${margin>=0?'+':''}${margin.toFixed(3)}. `+
-        (flipped ? `<span class="wt-flip">⚠ the winner flipped from ${origWin}</span>`
-                 : `<span class="wt-same">same winner as the stated weights</span>`)+
-        `<button class="ghost-btn ghost-btn-sm" id="wtReset">Reset to stated weights</button>`;
-      const rb = $('wtReset');
-      if(rb) rb.addEventListener('click', ()=>{
-        const defs = {fidelity:0.40, trust:0.20, continuity:0.20, cluster:0.20};
-        box.querySelectorAll('.wt-slider').forEach(s=>{ s.value = defs[s.dataset.wt]; });
-        recompute();
-      });
+        (flipped ? `<span class="wt-flip">⚠ the winner flipped from ${v.winner}</span>`
+                 : `<span class="wt-same">same winner as the stated weights</span>`);
     }
-    // update the grouped bar chart to reflect... (bars show component scores,
-    // which don't change with weights, so we leave them; the live line is the
-    // weight-dependent readout)
   };
-  box.querySelectorAll('.wt-slider').forEach(s=> s.addEventListener('input', recompute));
-  recompute();
+  // update the live value labels + the sum + enable/disable the re-run button
+  const refresh = ()=>{
+    box.querySelectorAll('.wt-slider').forEach(s=>{
+      const el=$(`wtval-${s.dataset.wt}`); if(el) el.textContent=(parseFloat(s.value)*100).toFixed(0)+'%';
+    });
+    const w = readWeights();
+    const sumPct = Math.round(Object.values(w).reduce((a,b)=>a+b,0)*100);
+    const sumEl=$('wtSum'), btn=$('wtRerun');
+    const ok = sumPct === 100;
+    if(sumEl){ sumEl.textContent=`sum: ${sumPct}%`; sumEl.className = ok ? 'wt-sum-ok' : 'wt-sum-bad'; }
+    if(btn){ btn.disabled = !ok; btn.classList.toggle('is-disabled', !ok); }
+  };
+  box.querySelectorAll('.wt-slider').forEach(s=> s.addEventListener('input', refresh));
+  const rr=$('wtRerun'); if(rr) rr.addEventListener('click', ()=>{ if(!rr.disabled) runVerdict(); });
+  const rst=$('wtReset'); if(rst) rst.addEventListener('click', ()=>{
+    box.querySelectorAll('.wt-slider').forEach(s=>{ s.value='0.25'; });
+    refresh(); runVerdict();
+  });
+  refresh(); runVerdict();   // initial state (25% each sums to 100)
 }
 
 /* Grouped component bar chart (PCA vs MDS) + confidence-interval plot. */
@@ -1983,8 +2256,8 @@ function renderAnnealCard(d){
         note = $('anAnnealNote'), plotDiv = $('anAnnealPlot');
   if(!a){
     chip.textContent = 'off';
-    stats.innerHTML = '<p class="an-muted">Enable “Search best k” in the Analysis controls and re-run to see the search.</p>';
-    note.textContent=''; if(typeof Plotly!=='undefined') Plotly.purge(plotDiv);
+    stats.innerHTML = '<p class="an-muted">Simulated-annealing search did not run for this dataset.</p>';
+    note.textContent=''; if(typeof Plotly!=='undefined' && plotDiv) Plotly.purge(plotDiv);
     return;
   }
   chip.textContent = `k* = ${a.best_k}`;
@@ -2039,34 +2312,11 @@ function renderAnnealCard(d){
 
   const reheatTxt = a.reheats ? ` It re-heated ${a.reheats} time${a.reheats>1?'s':''} after stalling, to escape local optima.` : '';
   note.innerHTML =
-    `<strong>What a working search looks like.</strong> The <span style="color:#4ec97a">green best-F1 line</span> is a cumulative maximum, so it <em>never decreases</em>; it should rise then plateau. The <span style="color:#7f9ab5">grey proposed-k line</span> should bounce widely early (exploration) then settle late (refinement). Red rings (accepted worsening moves) should cluster early and thin out as it cools. The final best should beat the start.${reheatTxt}` +
+    `<strong>What a healthy search looks like.</strong> The best F1 should exceed the starting F1 (a real improvement), a few worsening moves should be accepted early (exploration), and the search should touch far fewer than the exhaustive count of k values.${reheatTxt}` +
     diag;
 
-  // THREE stacked panels: best-F1 (top), k-trace (middle), temperature (bottom).
-  if(typeof Plotly!=='undefined' && a.trace && a.trace.length){
-    const it = a.trace.map(t=>t.iter), kk = a.trace.map(t=>t.k),
-          bestF = a.trace.map(t=>t.best_score), temp = a.trace.map(t=>t.T);
-    const up = a.trace.filter(t=>t.uphill);
-    const bestScoreLine = { type:'scatter', mode:'lines', x:it, y:bestF,
-      name:'best F1 so far', xaxis:'x', yaxis:'y', line:{color:'#4ec97a',width:2.5} };
-    const proposed = { type:'scatter', mode:'lines+markers', x:it, y:kk,
-      name:'proposed k', xaxis:'x', yaxis:'y2',
-      line:{color:'#7f9ab5',width:1}, marker:{size:5,color:'#7f9ab5'} };
-    const uphill = { type:'scatter', mode:'markers', x:up.map(t=>t.iter), y:up.map(t=>t.k),
-      name:'accepted worsening', xaxis:'x', yaxis:'y2',
-      marker:{size:11,color:'rgba(0,0,0,0)', line:{color:'#d24b52',width:1.6}} };
-    const tempLine = { type:'scatter', mode:'lines', x:it, y:temp,
-      name:'temperature', xaxis:'x', yaxis:'y3', line:{color:'#c88a4a',width:1.5} };
-    Plotly.react(plotDiv, [bestScoreLine, proposed, uphill, tempLine], baseLayout({
-      grid:{rows:3, columns:1, pattern:'independent', roworder:'top to bottom'},
-      xaxis:Object.assign({title:'iteration', anchor:'y3'},AXIS),
-      yaxis:Object.assign({title:'best F1', domain:[0.71,1.0]},AXIS),
-      yaxis2:Object.assign({title:'k tried', domain:[0.38,0.63]},AXIS),
-      yaxis3:Object.assign({title:'temp (cooling)', domain:[0.0,0.28]},AXIS),
-      showlegend:true, legend:{font:{size:9,color:'#9aa7b6'},orientation:'h',x:0,y:1.1,xanchor:'left',yanchor:'bottom'},
-      height:440, margin:{l:52,r:16,t:24,b:38},
-    }), PLOT_CONFIG);
-  }
+  // Plot intentionally omitted — only the numeric summary is shown.
+  if(typeof Plotly!=='undefined' && plotDiv) Plotly.purge(plotDiv);
 }
 
 function statCell(label, value){

@@ -1454,3 +1454,62 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 #trustSelTable{ font-size:11px; }
 #trustSelTable th, #trustSelTable td{ padding:3px 8px; }
 @media (max-width: 900px){ .trust-box-row{ grid-template-columns:1fr; } }
+
+/* clean dual-range slider (two overlaid handles, shared track) */
+.dual-range{ position:relative; display:inline-flex; align-items:center; gap:10px; width:200px; height:22px; }
+.dual-range input[type=range]{ position:absolute; left:0; top:6px; width:150px; margin:0; background:none; pointer-events:none; -webkit-appearance:none; appearance:none; }
+.dual-range input[type=range]::-webkit-slider-thumb{ pointer-events:auto; -webkit-appearance:none; appearance:none; width:13px; height:13px; border-radius:50%; background:#e0a54b; border:2px solid #0e1116; cursor:pointer; }
+.dual-range input[type=range]::-moz-range-thumb{ pointer-events:auto; width:13px; height:13px; border-radius:50%; background:#e0a54b; border:2px solid #0e1116; cursor:pointer; }
+.dual-range input[type=range]::-webkit-slider-runnable-track{ height:3px; background:#2a3340; border-radius:2px; }
+.dual-range input[type=range]::-moz-range-track{ height:3px; background:#2a3340; border-radius:2px; }
+.dual-range .dr-hi{ z-index:2; }
+.dual-range .dr-vals{ position:absolute; left:158px; top:3px; font-family:var(--mono); font-size:11px; color:var(--ink-dim); white-space:nowrap; }
+/* comparison axis pickers */
+.cmp-axis-pick{ display:inline-flex; align-items:center; gap:6px; }
+
+/* class-aware info + k-means box in trust panel */
+.check-inline{ margin:0; }
+.classaware-info{ font-size:11.5px; color:var(--ink-dim); line-height:1.5; margin:8px 0; padding:8px 12px; background:var(--bg-inset); border:1px solid var(--line); border-radius:8px; }
+.classaware-info strong{ color:var(--ink); }
+.kmeans-box{ margin:10px 0 14px; padding:12px 14px; background:var(--bg-panel); border:1px solid var(--line-bright); border-radius:8px; }
+.km-head{ font-size:12px; font-weight:700; color:var(--ink); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.04em; }
+.km-stats{ display:flex; flex-wrap:wrap; gap:8px 16px; }
+.kmm{ font-size:11.5px; color:var(--ink-dim); }
+.kmm strong{ color:var(--ink); font-family:var(--mono); }
+.km-verdict{ margin-top:8px; font-size:11.5px; line-height:1.5; }
+.km-good{ color:#7ee0a0; }
+.km-warn{ color:var(--live); }
+.km-warn strong{ color:var(--live); }
+
+/* smaller verdict weight sliders + sum/re-run row */
+.wtsliders-sm .wt-row{ margin:4px 0; }
+.wtsliders-sm .wt-slider{ height:3px; max-width:150px; }
+.wtsliders-sm .wt-name{ font-size:11px; width:70px; }
+.wtsliders-sm .wt-val{ font-size:10.5px; width:38px; }
+.wt-sum-row{ display:flex; align-items:center; gap:12px; margin-top:8px; }
+.wt-sum-ok{ font-family:var(--mono); font-size:11px; color:#7ee0a0; }
+.wt-sum-bad{ font-family:var(--mono); font-size:11px; color:var(--live); }
+.run-btn-sm{ padding:4px 12px; font-size:11px; width:auto; }
+.run-btn.is-disabled, .run-btn:disabled{ opacity:0.4; cursor:not-allowed; }
+
+/* trust hover readout */
+.hover-readout{ margin:8px 0; padding:8px 12px; background:var(--bg-inset); border:1px solid var(--line); border-radius:8px; font-size:11px; color:var(--ink-dim); line-height:1.6; min-height:20px; }
+.hover-readout .hr-idx{ font-family:var(--mono); color:var(--ink); }
+.hover-readout .hr-row{ display:block; margin-top:2px; }
+.hover-readout .hr-m{ display:inline-block; width:32px; font-weight:700; color:var(--ink-faint); }
+.hover-readout strong{ color:var(--ink); font-family:var(--mono); }
+/* sortable selection-table headers */
+.th-sort{ cursor:pointer; user-select:none; }
+.th-sort:hover{ color:var(--ink); }
+/* adjusted-distance method list + feature-weight editor */
+.adj-list{ margin:8px 0; padding-left:18px; }
+.adj-list li{ margin:5px 0; font-size:11.5px; line-height:1.5; }
+.feat-weights{ margin-top:12px; padding:12px 14px; background:var(--bg-inset); border:1px solid var(--line-bright); border-radius:8px; }
+.fw-head{ font-size:11.5px; font-weight:700; color:var(--ink); margin-bottom:8px; }
+.fw-list{ max-height:220px; overflow-y:auto; }
+.fw-row{ display:flex; align-items:center; gap:10px; margin:3px 0; }
+.fw-name{ font-family:var(--mono); font-size:10.5px; color:var(--ink-dim); width:70px; flex:none; }
+.fw-slider{ flex:1; max-width:160px; height:3px; }
+.fw-mult{ font-family:var(--mono); font-size:10.5px; color:#e0a54b; width:34px; }
+.fw-eff{ font-family:var(--mono); font-size:10px; color:var(--ink-faint); width:58px; }
+.fw-actions{ display:flex; gap:10px; margin-top:10px; }

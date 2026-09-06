@@ -185,6 +185,63 @@ def compute_feature_weights(X: NDArray[np.float64],
     return w * (n_features / total)
 
 
+def locality_feature_weights(X: NDArray[np.float64], k: int = 10
+                             ) -> NDArray[np.float64]:
+    """Label-free per-feature weights from LOCAL structure (Laplacian Score).
+
+    Idea: a feature is useful for a projection if it varies *little between
+    nearby points* (it respects the local manifold) relative to its overall
+    variance. This is the Laplacian Score (He, Cai & Niyogi 2005): build a
+    k-NN affinity graph, then for each feature f score
+
+        L_f = (fᵀ L f) / (fᵀ D f)
+
+    where L = D - W is the graph Laplacian of the affinity W and D its degree.
+    A *low* L_f means the feature is smooth on the neighbourhood graph (good);
+    we therefore weight features by ``1 - L_f`` (higher = more locality-
+    preserving), normalised to mean 1. Unlike Mahalanobis (which whitens and can
+    amplify noise directions), this *down-weights* noisy features that vary
+    randomly between neighbours, which is what a projection wants.
+    """
+    X = np.asarray(X, dtype=float)
+    n, p = X.shape
+    if n < 3 or p == 0:
+        return np.ones(p)
+    D_ = pairwise_distances(X, metric="euclidean")
+    np.fill_diagonal(D_, np.inf)
+    kk = int(min(max(2, k), n - 1))
+    order = np.argsort(D_, axis=1)[:, :kk]
+    # heat-kernel affinity on the k-NN graph (symmetric)
+    sigma = np.median(D_[np.isfinite(D_)]) or 1.0
+    W = np.zeros((n, n))
+    for i in range(n):
+        for j in order[i]:
+            wij = np.exp(-(D_[i, j] ** 2) / (2.0 * sigma ** 2))
+            W[i, j] = max(W[i, j], wij)
+            W[j, i] = W[i, j]
+    deg = W.sum(axis=1)
+    Dm = np.diag(deg)
+    L = Dm - W
+    scores = np.zeros(p)
+    for f in range(p):
+        fr = X[:, f].copy()
+        # remove the weighted mean (projection onto the constant vector)
+        denom_all = deg.sum() or 1.0
+        fr = fr - (fr @ deg) / denom_all
+        fDf = float(fr @ (deg * fr))
+        if fDf <= 1e-12:
+            scores[f] = 1.0            # constant feature -> max Laplacian score
+            continue
+        fLf = float(fr @ (L @ fr))
+        scores[f] = fLf / fDf         # Laplacian score in [0, ~1]; low = good
+    w = 1.0 - np.clip(scores, 0.0, 1.0)   # high = locality-preserving
+    w = np.clip(w, 1e-6, None)
+    total = w.sum()
+    if total <= 0:
+        return np.ones(p)
+    return w * (p / total)            # normalise to mean 1
+
+
 def build_projections(X: NDArray[np.float64], standardize: bool = True,
                       weighted_mds: bool = False,
                       feature_weights: Optional[Sequence[float]] = None,
@@ -372,23 +429,39 @@ def per_point_neighbor_metrics(X_high: NDArray[np.float64],
     # ---- per-point distance correlation (Euclidean-preservation) ----
     # For each point, the Spearman rank correlation between its distances to all
     # other points in high-D vs in 2-D. 1 = the projection preserves this point's
-    # distance ordering perfectly; low = its distances are scrambled. Rescaled to
-    # [0, 1] as (corr + 1) / 2 so it reads like the other fidelities.
-    rank_h = np.argsort(np.argsort(Dh, axis=1), axis=1).astype(float)
-    rank_l = np.argsort(np.argsort(Dl, axis=1), axis=1).astype(float)
-    dist_corr = np.zeros(n)
+    # ---- per-point symmetric Local Stress, as a fidelity ----
+    # For each point i, the weighted squared error between its high-D distances
+    # and its 2-D distances to its nearest neighbours, with weights that decay
+    # with distance (1/rank), so closer neighbours matter more. Both spaces are
+    # scaled to unit mean neighbour distance first, so the comparison is scale-
+    # free and symmetric (neither space privileged). Fidelity = 1 - stress,
+    # clamped to [0, 1]; higher = the point's local distances are well preserved.
+    order_h_ls = np.argsort(Dh, axis=1)
+    local_stress = np.zeros(n)
     for i in range(n):
-        a = rank_h[i]; b = rank_l[i]
-        a = np.delete(a, i); b = np.delete(b, i)
-        sa, sb = a.std(), b.std()
-        if sa > 0 and sb > 0:
-            dist_corr[i] = float(np.corrcoef(a, b)[0, 1])
-    dist_corr = np.clip((dist_corr + 1.0) / 2.0, 0.0, 1.0)
+        ki = int(k_vec[i]) if k_vec is not None else int(k)
+        ki = max(1, min(ki, n - 1))
+        neigh = order_h_ls[i, :ki]
+        dh = Dh[i, neigh].astype(float)
+        dl = Dl[i, neigh].astype(float)
+        # scale each space to unit mean neighbour distance (scale-free, symmetric)
+        mh = dh.mean() or 1.0
+        ml = dl.mean() or 1.0
+        dh_s = dh / mh
+        dl_s = dl / ml
+        # 1/rank weights (rank 1 = nearest), normalised to sum 1
+        w = 1.0 / np.arange(1, ki + 1)
+        w = w / w.sum()
+        # weighted mean squared difference of the (scaled) distances
+        stress = float(np.sum(w * (dh_s - dl_s) ** 2))
+        local_stress[i] = 1.0 - stress
+    local_stress = np.clip(local_stress, 0.0, 1.0)
 
     # ---- per-point Mean Relative Rank Error (MRRE), as a fidelity ----
     # MRRE penalises rank differences of a point's k nearest neighbours between
     # the two spaces (a smoother version of trustworthiness/continuity). We report
     # a per-point fidelity = 1 - normalised-MRRE in [0, 1].
+    rank_l = np.argsort(np.argsort(Dl, axis=1), axis=1).astype(float)
     mrre_fid = np.zeros(n)
     order_h_i = np.argsort(Dh, axis=1)
     for i in range(n):
@@ -409,13 +482,13 @@ def per_point_neighbor_metrics(X_high: NDArray[np.float64],
         "f1": f1.tolist(),
         "js": js.tolist(),
         "js_fidelity": js_fid.tolist(),
-        "euclidean": dist_corr.tolist(),
+        "localstress": local_stress.tolist(),
         "mrre": mrre_fid.tolist(),
         "mean": {
             "precision": float(prec.mean()), "recall": float(rec.mean()),
             "f1": float(f1.mean()), "js": float(js.mean()),
             "js_fidelity": float(js_fid.mean()),
-            "euclidean": float(dist_corr.mean()), "mrre": float(mrre_fid.mean()),
+            "localstress": float(local_stress.mean()), "mrre": float(mrre_fid.mean()),
         },
     }
 
