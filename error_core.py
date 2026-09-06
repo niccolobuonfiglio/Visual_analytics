@@ -82,10 +82,79 @@ def _make_mislabeled():
     y = rng.randint(0, 3, size=X.shape[0])
     return X, y, ["label A", "label B", "label C"]
 
+def _make_hierarchical():
+    """Nested/hierarchical structure: 3 super-groups, each split into 2 sub-
+    clusters, in a moderately high-D space with correlated features. Realistic
+    for taxonomies (e.g. species within genera): the challenge is preserving
+    BOTH scales at once -- a projection may keep the super-groups apart yet merge
+    the sub-clusters, or vice-versa. 6 labels, 400 points, 20 features."""
+    rng = np.random.RandomState(RANDOM_STATE)
+    n_per = 400 // 6
+    p = 20
+    Xs, ys = [], []
+    # three super-group centres, well separated in the first few dims
+    super_centres = rng.randn(3, p) * 6.0
+    label = 0
+    for s in range(3):
+        # two sub-clusters offset from the super centre by a smaller amount
+        for _ in range(2):
+            offset = rng.randn(p) * 1.6
+            centre = super_centres[s] + offset
+            # anisotropic, mildly correlated covariance
+            A = rng.randn(p, p) * 0.35
+            cov = A @ A.T + np.eye(p) * 0.4
+            pts = rng.multivariate_normal(centre, cov, size=n_per)
+            Xs.append(pts)
+            ys.append(np.full(n_per, label))
+            label += 1
+    X = np.vstack(Xs)
+    y = np.concatenate(ys)
+    names = [f"{g}{sub}" for g in ("A", "B", "C") for sub in ("1", "2")]
+    return X, y, names
+
+def _make_imbalanced_overlap():
+    """Class-imbalanced, anisotropic, partially overlapping classes -- the kind
+    of messiness real data has. Four classes of very different sizes (a big
+    majority class, two mid, one rare), each an elongated (stretched) Gaussian,
+    with two of them overlapping. Tests whether the metrics handle imbalance and
+    whether a projection can separate unequal, overlapping clusters. 30 features,
+    ~430 points."""
+    rng = np.random.RandomState(RANDOM_STATE)
+    p = 30
+    sizes = [220, 110, 70, 30]          # strongly imbalanced
+    centres = np.array([
+        rng.randn(p) * 4.0,
+        rng.randn(p) * 4.0,
+        rng.randn(p) * 4.0,
+        rng.randn(p) * 4.0,
+    ])
+    # make classes 0 and 1 overlap by pulling their centres together
+    centres[1] = centres[0] + rng.randn(p) * 1.2
+    Xs, ys = [], []
+    for c, n_c in enumerate(sizes):
+        # elongated covariance: a few directions stretched, others tight
+        scales = np.ones(p)
+        stretch = rng.choice(p, size=5, replace=False)
+        scales[stretch] = rng.uniform(3.0, 6.0, size=5)
+        A = (rng.randn(p, p) * 0.25) * scales[None, :]
+        cov = A @ A.T + np.eye(p) * 0.5
+        pts = rng.multivariate_normal(centres[c], cov, size=n_c)
+        Xs.append(pts)
+        ys.append(np.full(n_c, c))
+    X = np.vstack(Xs)
+    y = np.concatenate(ys)
+    # shuffle so classes aren't blocked in order
+    perm = rng.permutation(X.shape[0])
+    X, y = X[perm], y[perm]
+    names = ["majority", "overlap-A", "medium", "rare"]
+    return X, y, names
+
 SYNTHETIC_LOADERS = {
     "synthetic_noisy": _make_noisy,
     "synthetic_circles": _make_nonconvex,
     "synthetic_mislabeled": _make_mislabeled,
+    "hierarchical": _make_hierarchical,
+    "imbalanced_overlap": _make_imbalanced_overlap,
 }
 
 # Public registry of every selectable dataset name (real + synthetic).
@@ -476,6 +545,23 @@ def per_point_neighbor_metrics(X_high: NDArray[np.float64],
         mrre_fid[i] = float(1.0 - min(err / norm, 1.0))
     mrre_fid = np.clip(mrre_fid, 0.0, 1.0)
 
+    # ---- per-point LINEAR distance preservation (Pearson) ----
+    # For each point, the Pearson correlation between its ACTUAL high-D distances
+    # and its ACTUAL 2-D distances to every other point. Unlike Local Stress
+    # (a local, rank-weighted squared error) or MRRE (rank-based), this asks
+    # whether the projection preserved the point's distances *linearly* across
+    # the whole dataset: a high value means "twice as far in high-D => about
+    # twice as far in 2-D". Rescaled from [-1, 1] to [0, 1] as (r + 1) / 2 so it
+    # reads like the other fidelities (higher = better).
+    lindist = np.zeros(n)
+    for i in range(n):
+        a = np.delete(Dh[i], i).astype(float)
+        b = np.delete(Dl[i], i).astype(float)
+        sa, sb = a.std(), b.std()
+        if sa > 1e-12 and sb > 1e-12:
+            lindist[i] = float(np.corrcoef(a, b)[0, 1])
+    lindist = np.clip((lindist + 1.0) / 2.0, 0.0, 1.0)
+
     return {
         "precision": prec.tolist(),
         "recall": rec.tolist(),
@@ -484,11 +570,13 @@ def per_point_neighbor_metrics(X_high: NDArray[np.float64],
         "js_fidelity": js_fid.tolist(),
         "localstress": local_stress.tolist(),
         "mrre": mrre_fid.tolist(),
+        "lindist": lindist.tolist(),
         "mean": {
             "precision": float(prec.mean()), "recall": float(rec.mean()),
             "f1": float(f1.mean()), "js": float(js.mean()),
             "js_fidelity": float(js_fid.mean()),
             "localstress": float(local_stress.mean()), "mrre": float(mrre_fid.mean()),
+            "lindist": float(lindist.mean()),
         },
     }
 

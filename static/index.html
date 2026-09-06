@@ -63,7 +63,7 @@
             </label>
             <div class="adaptk-mini" id="adaptkMini" hidden>
               <span class="adaptk-mini-label">adaptive k in use:</span>
-              <span class="adaptk-mini-vals" id="adaptkMiniVals">—</span>
+              <span class="adaptk-mini-vals" id="adaptkMiniVals">,</span>
             </div>
             <label class="check">
               <input type="checkbox" id="adaptive" checked>
@@ -126,7 +126,7 @@
         <!-- VERDICT BANNER: the headline PCA-vs-MDS decision, always visible -->
         <div class="verdict-banner" id="verdictBanner" hidden>
           <div class="vb-main">
-            <div class="vb-badge" id="vbBadge">—</div>
+            <div class="vb-badge" id="vbBadge">,</div>
             <div class="vb-text">
               <div class="vb-headline" id="vbHeadline">Awaiting analysis</div>
               <div class="vb-sub" id="vbSub"></div>
@@ -176,7 +176,7 @@
             </button>
             <button class="es-quad es-quad-nearzero" data-quad="nearZero">
               <span class="es-quad-key">Near-zero net error</span>
-              <span class="es-quad-desc">|err|&nbsp;&asymp;&nbsp;0 · not always faithful</span>
+              <span class="es-quad-desc">|err|&nbsp;&asymp;&nbsp;0, not always faithful</span>
               <span class="es-quad-count" data-count="nearZero">0</span>
             </button>
             <button class="ghost-btn ghost-btn-sm es-clear" id="esClear">Clear selection</button>
@@ -235,9 +235,9 @@
 
         <!-- TRUST ANALYSIS PANEL: per-point neighbourhood-preservation F1 -->
         <section class="flatpanel" data-panel="trust">
-          <h3 class="panel-title" data-info-title="neighborf1">Trust Analysis — which points can I not trust?</h3>
-          <div class="panel-caption">Each point acts as a <strong>classifier of its own neighbourhood</strong>: its high-D k-nearest neighbours are the &ldquo;truth&rdquo;, its 2-D k-nearest neighbours are the &ldquo;prediction&rdquo;. <strong>Precision</strong> = fraction of the 2-D neighbours that are real (1&nbsp;&minus;&nbsp;precision = false-positive/intrusion rate); <strong>Recall</strong> = fraction of the real neighbours the projection kept (1&nbsp;&minus;&nbsp;recall = false-negative/extrusion rate); <strong>F1</strong> = their harmonic mean, in [0,1]. A <strong>low-F1 point cannot be trusted</strong> — its neighbourhood in the picture is wrong. Colour below is the per-point F1 (red = untrustworthy, green = faithful).</div>
-
+          <h3 class="panel-title" data-info-title="neighborf1">Trust Analysis, which points can I not trust?</h3>
+          <!-- <div class="panel-caption">Each point acts as a <strong>classifier of its own neighbourhood</strong>: its high-D k-nearest neighbours are the &ldquo;truth&rdquo;, its 2-D k-nearest neighbours are the &ldquo;prediction&rdquo;. <strong>Precision</strong> = fraction of the 2-D neighbours that are real (1&nbsp;&minus;&nbsp;precision = false-positive/intrusion rate); <strong>Recall</strong> = fraction of the real neighbours the projection kept (1&nbsp;&minus;&nbsp;recall = false-negative/extrusion rate); <strong>F1</strong> = their harmonic mean, in [0,1]. A <strong>low-F1 point cannot be trusted</strong>, its neighbourhood in the picture is wrong. Colour below is the per-point F1 (red = untrustworthy, green = faithful).</div>
+          -->
           <div class="trust-controls">
             <div class="trust-ctl-group">
               <span class="trust-ctl-label">Metric</span>
@@ -246,6 +246,7 @@
                 <button class="seg-btn" data-tm="js_fidelity">JS fidelity</button>
                 <button class="seg-btn" data-tm="localstress">local stress</button>
                 <button class="seg-btn" data-tm="mrre">MRRE</button>
+                <button class="seg-btn" data-tm="lindist">linear dist</button>
               </span>
               <button class="info-btn" data-info="trustmetrics" title="What do these metrics mean?">i</button>
             </div>
@@ -319,7 +320,7 @@
             </div>
           </div>
 
-          <h4 data-info-title="metriccompare" class="has-info">Compare two metrics — where they disagree</h4>
+          <h4 data-info-title="metriccompare" class="has-info">Compare two metrics, where they disagree</h4>
           <div class="panel-caption" style="margin-bottom:6px">Each point plotted by one fidelity metric (x) against another (y), for the chosen method. Points on the diagonal agree; points <strong>far off the diagonal are judged very differently by the two metrics</strong>. Pick which two metrics to compare below. Those off-diagonal points are the interesting, ambiguous ones.</div>
           <div class="trust-ctl-group" style="margin-bottom:6px; gap:14px; flex-wrap:wrap">
             <span class="cmp-axis-pick"><span class="trust-ctl-label">X axis</span>
@@ -328,6 +329,7 @@
                 <option value="js_fidelity">JS fidelity</option>
                 <option value="localstress">local stress</option>
                 <option value="mrre">MRRE</option>
+                <option value="lindist">linear dist</option>
               </select></span>
             <span class="cmp-axis-pick"><span class="trust-ctl-label">Y axis</span>
               <select id="cmpYSel" class="inp inp-sm">
@@ -335,6 +337,7 @@
                 <option value="js_fidelity" selected>JS fidelity</option>
                 <option value="localstress">local stress</option>
                 <option value="mrre">MRRE</option>
+                <option value="lindist">linear dist</option>
               </select></span>
             <span class="cmp-axis-pick"><span class="trust-ctl-label">Method</span>
               <span class="seg seg-sm" id="cmpMethodSeg">
@@ -347,13 +350,12 @@
 
         <!-- VERDICT & ANALYSIS PANEL -->
         <section class="flatpanel" data-panel="verdict">
-          <div class="panel-caption">The mechanical decision on which projection is more faithful for this dataset. This is a <strong>projection</strong> question — it measures the picture, not the data.</div>
 
           <!-- headline verdict card -->
           <div class="an-card an-verdict" id="anVerdictCard">
             <div class="an-card-head">
               <h3 data-info-title="verdict">PCA vs MDS verdict</h3>
-              <span class="an-chip" id="anVerdictChip">—</span>
+              <span class="an-chip" id="anVerdictChip">,</span>
             </div>
             <div class="an-verdict-body" id="anVerdictBody"></div>
             <div class="an-verdict-components" id="anVerdictComponents"></div>
@@ -362,17 +364,17 @@
         </section>
 
         <section class="flatpanel" data-panel="analysis-data">
-          <div class="panel-caption">Is the class structure genuinely present in the data, and do the labels describe it? These are <strong>data</strong> questions — independent of any projection.</div>
+          <div class="panel-caption">Is the class structure genuinely present in the data, and do the labels describe it? These are <strong>data</strong> questions, independent of any projection.</div>
 
 
           <!-- simulated annealing card -->
           <div class="an-card" id="anAnnealCard">
             <div class="an-card-head">
               <h3 data-info-title="annealing">Neighbourhood search &nbsp;<span class="an-subtle">simulated annealing</span></h3>
-              <span class="an-chip an-chip-quiet" id="anAnnealChip">—</span>
+              <span class="an-chip an-chip-quiet" id="anAnnealChip">,</span>
             </div>
             <div class="an-why" id="anAnnealWhy">
-              <strong>Why this is needed.</strong> The F1-score as a function of the neighbourhood size <em>k</em> is neither concave nor convex: enlarging <em>k</em> steadily raises recall but lowers precision in a bumpy way, so the combined score has several local peaks. A plain scan is wasteful and gradient methods get stuck, so the toolkit anneals — it accepts occasional worsening moves early on to escape local optima, then cools to refine. Crucially, no projection is recomputed during the search; only the similarity graph is rebuilt, which is what makes it cheap.
+              <strong>Why this is needed.</strong> The F1-score as a function of the neighbourhood size <em>k</em> is neither concave nor convex: enlarging <em>k</em> steadily raises recall but lowers precision in a bumpy way, so the combined score has several local peaks. A plain scan is wasteful and gradient methods get stuck, so the toolkit anneals, it accepts occasional worsening moves early on to escape local optima, then cools to refine. Crucially, no projection is recomputed during the search; only the similarity graph is rebuilt, which is what makes it cheap.
             </div>
             <div class="an-anneal-stats" id="anAnnealStats"></div>
             <div class="an-note" id="anAnnealNote"></div>
@@ -383,10 +385,10 @@
           <div class="an-card" id="anKmeansCard">
             <div class="an-card-head">
               <h3 data-info-title="kmeans">Ground-truth check &nbsp;<span class="an-subtle">k-means</span></h3>
-              <span class="an-chip an-chip-quiet" id="anKmeansChip">—</span>
+              <span class="an-chip an-chip-quiet" id="anKmeansChip">,</span>
             </div>
             <div class="an-why">
-              <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups — so this check runs before the verdict is trusted.
+              <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups, so this check runs before the verdict is trusted.
             </div>
             <label class="field inline-field">
               <span class="field-label">Clusterer
@@ -417,8 +419,8 @@
             <div class="an-why" style="margin-top:8px">
               <strong>What it does.</strong> Ordinary MDS uses the plain Euclidean distance, so noisy or dominant features drive the layout. An <em>adjusted</em> distance reweights the space so the projection preserves neighbourhoods better. Two label-free methods:
               <ul class="adj-list">
-                <li><strong>Locality weighting</strong> (default) — weights each feature by its <em>Laplacian Score</em>: a feature counts more if it varies little between nearby points (it respects the local manifold), and noisy features that vary randomly are down-weighted. You can hand-tune each feature's weight below.</li>
-                <li><strong>Mahalanobis</strong> — whitens by the inverse covariance <span class="mono">d = &radic;((a&minus;b)&#7488;&Sigma;&#8315;&sup1;(a&minus;b))</span>. Standard, but whitening <em>amplifies</em> low-variance directions, which are often noise — so on these datasets it tends to make F1 <em>worse</em>, which the panel below shows honestly.</li>
+                <li><strong>Locality weighting</strong> (default), weights each feature by its <em>Laplacian Score</em>: a feature counts more if it varies little between nearby points (it respects the local manifold), and noisy features that vary randomly are down-weighted. You can hand-tune each feature's weight below.</li>
+                <li><strong>Mahalanobis</strong>, whitens by the inverse covariance <span class="mono">d = &radic;((a&minus;b)&#7488;&Sigma;&#8315;&sup1;(a&minus;b))</span>. Standard, but whitening <em>amplifies</em> low-variance directions, which are often noise, so on these datasets it tends to make F1 <em>worse</em>, which the panel below shows honestly.</li>
               </ul>
               <strong>Only the MDS panel changes</strong>; PCA and the trust scores stay on the true geometry. Whether it helps is <strong>measured below</strong> (neighbourhood-F1 and FP/FN rates, plain vs adjusted).
             </div>
@@ -436,6 +438,7 @@
               <div class="plot es-plot" id="wmdsPlain"></div>
               <div class="plot es-plot" id="wmdsWeighted"></div>
             </div>
+            <div class="hover-readout" id="wmdsHover">Hover a point to see its details; the same point is highlighted in the other layout.</div>
             <div class="brush-detail" id="wmdsDetail">
               <div class="brush-detail-head">
                 <span id="wmdsSelCount">No points selected: drag on either layout to compare where the same points land.</span>
@@ -480,7 +483,7 @@
   <div class="modal-overlay" id="verdictModal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="vmTitle">
       <div class="modal-head">
-        <h2 id="vmTitle">PCA vs MDS — full verdict</h2>
+        <h2 id="vmTitle">PCA vs MDS, full verdict</h2>
         <button class="modal-close" id="vmClose" aria-label="Close">✕</button>
       </div>
       <div class="modal-body" id="vmBody"></div>

@@ -134,8 +134,8 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
 
         # The adjusted-distance comparison is ALWAYS computed and shown at the
         # bottom, independent of any toggle. The METHOD is selectable:
-        #   * 'mahalanobis' — whiten by inverse covariance (label-free)
-        #   * 'locality'    — Laplacian-Score feature weighting (label-free): a
+        #   * 'mahalanobis', whiten by inverse covariance (label-free)
+        #   * 'locality'   , Laplacian-Score feature weighting (label-free): a
         #                     feature counts more if it varies little between
         #                     neighbours (respects the local manifold). Unlike
         #                     Mahalanobis this down-weights noise, so it tends to
@@ -179,6 +179,18 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
             sil_adj = float(_sil(adj_proj["MDS"], y)) if n_lab > 1 else 0.0
             f1_plain = _ppnm2(X_high, proj["MDS"], k=neighbors)["mean"]
             f1_adj = _ppnm2(X_high, adj_proj["MDS"], k=neighbors)["mean"]
+            # global distance-preservation (Shepard): Pearson correlation of all
+            # pairwise high-D distances against the 2-D distances. This is the
+            # classical MDS quality measure and a complement to the local F1.
+            from scipy.spatial.distance import pdist as _pdist2
+            dh_vec = _pdist2(X_high)
+            def _shepard(xy):
+                dl_vec = _pdist2(xy)
+                if dh_vec.std() < 1e-12 or dl_vec.std() < 1e-12:
+                    return 0.0
+                return float(np.corrcoef(dh_vec, dl_vec)[0, 1])
+            shep_plain = _shepard(proj["MDS"])
+            shep_adj = _shepard(adj_proj["MDS"])
             mds_compare = {
                 "method": method_label,
                 "adj_method": adj_method,
@@ -196,6 +208,13 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                 "fp_weighted": round(1 - f1_adj["precision"], 4),
                 "fn_plain": round(1 - f1_plain["recall"], 4),
                 "fn_weighted": round(1 - f1_adj["recall"], 4),
+                # additional comparison metrics beyond F1:
+                "localstress_plain": round(f1_plain["localstress"], 4),
+                "localstress_weighted": round(f1_adj["localstress"], 4),
+                "localstress_delta": round(f1_adj["localstress"] - f1_plain["localstress"], 4),
+                "shepard_plain": round(shep_plain, 4),
+                "shepard_weighted": round(shep_adj, 4),
+                "shepard_delta": round(shep_adj - shep_plain, 4),
                 "feature_weights": adj_weights,   # None for Mahalanobis
             }
             print(f"[{method_label}] plain F1={f1_plain['f1']:.3f} "
@@ -379,7 +398,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         except Exception as ve:
             print(f"[verdict] skipped ({ve})")
 
-        # untrustworthy report — NOW based on the per-point neighbourhood F1
+        # untrustworthy report, NOW based on the per-point neighbourhood F1
         # (a low-F1 point cannot be trusted: its neighbourhood in the picture is
         # wrong), which is far more reliable than the old FP/FN threshold.
         report_rows = []
