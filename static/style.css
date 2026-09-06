@@ -1548,3 +1548,7 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 #wmdsToggleCard {
     display: none !important;
 }
+
+#noStandardize {
+    display: none !important;
+}
