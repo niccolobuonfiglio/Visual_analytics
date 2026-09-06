@@ -398,16 +398,8 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         except Exception as ve:
             print(f"[verdict] skipped ({ve})")
 
-        # untrustworthy report: a COMPOSITE consensus of several complementary
-        # per-point fidelities, flagged by a statistical FENCE (not an arbitrary
-        # cutoff). For each point we take the MEAN over the kept fidelity metrics
-        # (F1, JS, local stress) -- a consensus view -- separately for PCA and
-        # MDS, then the point's consensus score is the WORSE of the two
-        # projections. A point is untrustworthy if that score is a low outlier:
-        # below Q1 - 1.5*IQR of the score distribution, OR below a hard floor of
-        # 0.3, whichever flags it. We also record which metrics agree it is bad
-        # and which projection it is (more) untrustworthy in, so the table shows
-        # WHY a point was flagged, not just that it was.
+                # untrustworthy report: COMPOSITE consensus with MORE LAX thresholds
+                # untrustworthy report: COMPOSITE consensus with BALANCED thresholds
         report_rows = []
         untrust_desc = "consensus"
         CONSENSUS_KEYS = ["f1", "js_fidelity", "localstress"]
@@ -417,33 +409,63 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                 per = {}
                 for mth in ("PCA", "MDS"):
                     arrs = [_np2.asarray(neighbor_metrics[mth][k]) for k in CONSENSUS_KEYS]
-                    per[mth] = {"stack": _np2.vstack(arrs),          # (nMetrics, N)
+                    per[mth] = {"stack": _np2.vstack(arrs),
                                 "consensus": _np2.mean(_np2.vstack(arrs), axis=0)}
+                
                 # per-point worse-of-the-two-projections consensus
                 worse = _np2.minimum(per["PCA"]["consensus"], per["MDS"]["consensus"])
-                # statistical fence on the consensus distribution
+                
+                # ---- BALANCED THRESHOLDS ----
+                # Use a moderate fence: Q1 - 0.5*IQR (less extreme than 1.5*IQR)
                 q1 = float(_np2.percentile(worse, 25))
                 q3 = float(_np2.percentile(worse, 75))
                 iqr = q3 - q1
-                fence = q1 - 1.5 * iqr
-                FLOOR = 0.30
-                cut = max(fence, FLOOR) if fence > FLOOR else FLOOR
-                # a point is flagged if below the fence OR below the floor
+                fence = q1 - 0.5 * iqr  # Much more lax than 1.5*IQR
+                
+                # Moderate floor
+                FLOOR = 0.32
+                
+                # Flag points below the fence OR below the floor
                 flagged = _np2.where((worse < fence) | (worse < FLOOR))[0]
-                flagged = flagged[_np2.argsort(worse[flagged])]     # worst first
-                untrust_desc = (f"consensus < {max(fence,FLOOR):.2f} "
+                
+                # If too many points (>30% of data), use stricter thresholds
+                if len(flagged) > 0.3 * len(worse):
+                    # Use stricter fence and floor
+                    fence = q1 - 0.8 * iqr
+                    FLOOR = 0.28
+                    flagged = _np2.where((worse < fence) | (worse < FLOOR))[0]
+                
+                # If still too many, use even stricter
+                if len(flagged) > 0.3 * len(worse):
+                    fence = q1 - 1.0 * iqr
+                    FLOOR = 0.25
+                    flagged = _np2.where((worse < fence) | (worse < FLOOR))[0]
+                
+                # If too few (<3 points), be more lax
+                if len(flagged) < 3:
+                    fence = q1 - 0.3 * iqr
+                    FLOOR = 0.35
+                    flagged = _np2.where((worse < fence) | (worse < FLOOR))[0]
+                
+                flagged = flagged[_np2.argsort(worse[flagged])]  # worst first
+                
+                # Limit to reasonable number (top 20 worst points or 15% of data, whichever is smaller)
+                max_display = min(20, int(0.15 * len(worse)))
+                if len(flagged) > max_display:
+                    flagged = flagged[:max_display]
+                
+                untrust_desc = (f"consensus < {max(fence, FLOOR):.2f} "
                                 f"(fence {fence:.2f}, floor {FLOOR:.2f}; "
                                 f"mean of {'/'.join(CONSENSUS_KEYS)}, worse of PCA/MDS)")
-                # threshold below which a single metric is considered "bad" for
-                # the per-row "which metrics agree" explanation
+                
                 bad_thr = max(fence, FLOOR)
                 metric_short = {"f1": "F1", "js_fidelity": "JS", "localstress": "stress"}
+                
                 for i in flagged:
                     pca_c = float(per["PCA"]["consensus"][i])
                     mds_c = float(per["MDS"]["consensus"][i])
                     which = ("both" if (pca_c < bad_thr and mds_c < bad_thr)
                              else ("PCA" if pca_c <= mds_c else "MDS"))
-                    # which individual metrics (in the worse projection) are bad
                     worse_mth = "PCA" if pca_c <= mds_c else "MDS"
                     agree = [metric_short[k] for k in CONSENSUS_KEYS
                              if float(neighbor_metrics[worse_mth][k][i]) < bad_thr]
@@ -455,10 +477,12 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                         "mds_consensus": round(mds_c, 3),
                         "which": which,
                         "agree": ", ".join(agree) if agree else "—",
-                        # keep individual metric values for reference
                         "pca_f1": round(float(neighbor_metrics["PCA"]["f1"][i]), 3),
                         "mds_f1": round(float(neighbor_metrics["MDS"]["f1"][i]), 3),
                     })
+                
+                print(f"[untrustworthy] Found {len(report_rows)} points with consensus < {bad_thr:.2f}")
+                
         except Exception as ue:
             print(f"[untrustworthy] consensus flag skipped ({ue})")
 
