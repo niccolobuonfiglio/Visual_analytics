@@ -1520,6 +1520,21 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 .verdict-col-weights{ min-width:0; }
 @media (max-width: 900px){ .verdict-2col{ grid-template-columns:1fr; } }
 
+/* scatter-grid relative wrapper + bottom-right clear button */
+.es-grid-rel{ position:relative; }
+.plot-clear-btn{ position:absolute; bottom:8px; right:8px; z-index:5; }
+/* outlier table under the box plots */
+.outlier-table-wrap{ margin-top:10px; }
+.outlier-table-head{ font-size:11px; font-weight:700; color:var(--ink); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:5px; }
+.out-badge{ display:inline-block; padding:1px 7px; border-radius:10px; font-size:10px; font-weight:700; }
+.out-pca{ background:rgba(63,124,196,0.18); color:#82abd8; }
+.out-mds{ background:rgba(224,165,75,0.18); color:#e0a54b; }
+.out-both{ background:rgba(210,75,82,0.18); color:#e8969b; }
+/* clickable index cells + pinned state */
+.idx-click{ cursor:pointer; color:#82abd8; text-decoration:underline dotted; text-underline-offset:2px; }
+.idx-click:hover{ color:#a9c8e8; }
+.idx-pinned{ background:rgba(78,201,122,0.18); color:#7ee0a0; font-weight:700; }
+
 
 /* FORCE EVERYTHING TO UBUNTU - quick fix */
 * {

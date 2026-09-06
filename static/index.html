@@ -268,9 +268,10 @@
           <div class="classaware-info" id="classAwareInfo" hidden></div>
           <div class="kmeans-box" id="trustKmeans" hidden></div>
 
-          <div class="es-grid">
+          <div class="es-grid es-grid-rel">
             <div class="plot es-plot" id="trustPca"></div>
             <div class="plot es-plot" id="trustMds"></div>
+            <button class="ghost-btn ghost-btn-sm plot-clear-btn" id="trustPlotClear" hidden>Clear selection</button>
           </div>
           <div class="hover-readout" id="trustHover">Hover a point to see its scores in both projections; it is highlighted in the other plot too.</div>
 
@@ -291,6 +292,12 @@
               <h4 data-info-title="boxplot" class="has-info">Distribution of per-point score</h4>
               <div class="plot" id="trustBox" style="height:210px"></div>
               <div class="trust-boxstats" id="trustBoxStats"></div>
+              <div class="outlier-table-wrap" id="trustOutlierWrap" hidden>
+                <div class="outlier-table-head">Outliers <span class="an-subtle" id="trustOutlierCount"></span></div>
+                <div class="table-wrap table-wrap-sm">
+                  <table class="dtable" id="trustOutlierTable"><thead></thead><tbody></tbody></table>
+                </div>
+              </div>
             </div>
             <div class="trust-filters trust-filters-col">
               <div class="tf-head">
@@ -426,16 +433,17 @@
             <div class="feat-weights" id="featWeights" hidden></div>
           </div>
 
-          <!-- ADJUSTED-DISTANCE COMPARISON: always shown -->
+           <!-- ADJUSTED-DISTANCE COMPARISON: always shown -->
           <div class="an-card wmds-compare" id="wmdsCompare">
             <div class="wmds-head">
               <span class="wmds-title" data-info-title="adjdist">Plain vs adjusted MDS</span>
               <span class="wmds-delta" id="wmdsDelta">&mdash;</span>
             </div>
             <p class="wmds-note" id="wmdsNote"></p>
-            <div class="es-grid">
+            <div class="es-grid es-grid-rel">
               <div class="plot es-plot" id="wmdsPlain"></div>
               <div class="plot es-plot" id="wmdsWeighted"></div>
+              <button class="ghost-btn ghost-btn-sm plot-clear-btn" id="wmdsPlotClear" hidden>Clear selection</button>
             </div>
             <div class="hover-readout" id="wmdsHover">Hover a point to see its details; the same point is highlighted in the other layout.</div>
             <div class="brush-detail" id="wmdsDetail">

@@ -12,6 +12,8 @@ const state = {
   tableSort: { key: 'worst_f1', dir: 1 },
   trustSelSort: { key: 'pca', dir: -1 },   // sort of the trust selection table
   wmdsSelSort: { key: 'move', dir: -1 },   // sort of the Mahalanobis selection table
+  outlierSort: { key: 'val', dir: 1 },     // sort of the outlier table
+  pinned: null,                            // a single pinned point index (green ring)
   adjMethod: 'locality',   // 'locality' | 'mahalanobis', adjusted-distance method
   featWeightOverride: {},  // {featureIndex: multiplier} for locality weighting
   // Trust Analysis state
@@ -1338,6 +1340,9 @@ function renderWmdsSelTable(d, idxSet, plainXY, weightXY){
       if(_wmdsSelCtx) renderWmdsSelTable(_wmdsSelCtx.d, _wmdsSelCtx.idxSet, _wmdsSelCtx.plainXY, _wmdsSelCtx.weightXY);
     });
   });
+  tbl.querySelectorAll('.idx-click').forEach(td=>{
+    td.addEventListener('click', ()=> pinPoint(parseInt(td.dataset.pt)));
+  });
 }
 let _wmdsSelCtx = null;
 
@@ -1731,7 +1736,7 @@ function renderTrustProjections(d){
   Plotly.react('trustPca', [mk(t.pca, nm.PCA[key]), ring()], lay('PCA'), cfg);
   Plotly.react('trustMds', [mk(t.mds, nm.MDS[key]), ring()], lay('MDS'), cfg);
   // reflect current selection as rings
-  if(state.trustSel && state.trustSel.size) applyTrustRings(d, state.trustSel);
+  if((state.trustSel && state.trustSel.size) || state.pinned!=null) applyTrustRings(d, state.trustSel || new Set());
 
   // (Re)bind interaction handlers AFTER every react. scattergl can drop its
   // selection listeners when the traces are replaced (e.g. on a metric or
@@ -1745,6 +1750,7 @@ function renderTrustProjections(d){
     applyTrustRings(state.result, state.trustSel || new Set());
     renderTrustBox(state.result); renderTrustCompare(state.result);
     renderTrustSelTable(state.result); updateTrustFilterNote(state.result);
+    updateTrustPlotClearBtn();
   };
   const onDesel = ()=>{ clearTrustSelection(); };
   const onHover = (ev)=>{ if(!ev||!ev.points||!ev.points.length) return;
@@ -1783,14 +1789,57 @@ function renderTrustProjections(d){
 // draw highlight rings for a set of point indices on BOTH trust projections
 function applyTrustRings(d, idxSet, hover){
   if(typeof Plotly==='undefined' || !d) return;
-  const t=d.table, pin=[...idxSet];
-  const col = hover ? '#e0a54b' : '#e8edf3';
+  const t=d.table;
+  const sel=[...idxSet];
+  const pin = state.pinned;
+  // Build the ring set = selection/hover points + the pinned point (if any).
+  // Per-point colours: selection/hover use white/amber; the pinned point is
+  // drawn green so a clicked index stands out in every plot.
+  const baseCol = hover ? '#e0a54b' : '#e8edf3';
+  const idxList = sel.slice();
+  const colors = sel.map(()=>baseCol);
+  if(pin!=null && !idxList.includes(pin)){ idxList.push(pin); colors.push('#4ec97a'); }
+  else if(pin!=null){ colors[idxList.indexOf(pin)] = '#4ec97a'; }
   ['trustPca','trustMds'].forEach(id=>{
     const el=$(id); if(!el||!el.data) return;
     const xy = id==='trustPca' ? t.pca : t.mds;
-    Plotly.restyle(id, { x:[pin.map(i=>xy.x[i])], y:[pin.map(i=>xy.y[i])],
-      'marker.line.color': col }, [1]);
+    Plotly.restyle(id, { x:[idxList.map(i=>xy.x[i])], y:[idxList.map(i=>xy.y[i])],
+      'marker.line.color':[colors] }, [1]);
   });
+}
+
+// Pin a single point: highlight it with a green ring in ALL its plots (the two
+// trust scatters, and the plain/adjusted MDS plots if visible). Clicking the
+// same index again un-pins it.
+function pinPoint(i){
+  state.pinned = (state.pinned === i) ? null : i;
+  // trust scatters
+  applyTrustRings(state.result, state.trustSel || new Set());
+  // reflect the pin in the plain/adjusted MDS plots too
+  applyWmdsPin();
+  // reflect pinned row styling in any visible table
+  document.querySelectorAll('.idx-click').forEach(td=>{
+    td.classList.toggle('idx-pinned', parseInt(td.dataset.pt)===state.pinned);
+  });
+  updateTrustPlotClearBtn();
+}
+
+// draw the pinned point as a green ring on the plain/adjusted MDS plots
+function applyWmdsPin(){
+  if(typeof Plotly==='undefined' || !_wmdsSelCtx) return;
+  const {plainXY, weightXY}=_wmdsSelCtx;
+  const cur = state._wmdsSel || new Set();
+  const sel=[...cur];
+  const colors=sel.map(()=>'#e8edf3');
+  const pin=state.pinned;
+  const idxList=sel.slice();
+  if(pin!=null && plainXY.x[pin]!=null){
+    if(!idxList.includes(pin)){ idxList.push(pin); colors.push('#4ec97a'); }
+    else colors[idxList.indexOf(pin)]='#4ec97a';
+  }
+  const el1=$('wmdsPlain'), el2=$('wmdsWeighted');
+  if(el1&&el1.data) Plotly.restyle('wmdsPlain',{x:[idxList.map(i=>plainXY.x[i])],y:[idxList.map(i=>plainXY.y[i])],'marker.line.color':[colors]},[1]);
+  if(el2&&el2.data) Plotly.restyle('wmdsWeighted',{x:[idxList.map(i=>weightXY.x[i])],y:[idxList.map(i=>weightXY.y[i])],'marker.line.color':[colors]},[1]);
 }
 
 // selection detail table (same style as the error-space one)
@@ -1839,6 +1888,9 @@ function renderTrustSelTable(d){
       else state.trustSelSort={key:k, dir:1};
       renderTrustSelTable(d);
     });
+  });
+  tbl.querySelectorAll('.idx-click').forEach(td=>{
+    td.addEventListener('click', ()=> pinPoint(parseInt(td.dataset.pt)));
   });
 }
 
@@ -1901,6 +1953,65 @@ function renderTrustBox(d){
       `<div class="tbs-row"><span class="tbs-tag tbs-mds">MDS, n=${sm?sm.n:0}</span><span class="tbs-vals">${fmt(sm)}</span></div>`+
       (active.size!==t.ids.length ? `<div class="tbs-note">Showing ${active.size} of ${t.ids.length} points (filtered/brushed).${state.brushMode==='within'?' Scores are the original per-point values restricted to this subset.':''}</div>` : '');
   }
+  renderOutlierTable(d, idxArr, sp, sm, key, mlabel);
+}
+
+// Table of the box-plot outliers: each point that falls beyond a whisker fence
+// in PCA and/or MDS, with its index, class, which method(s) it is an outlier
+// for, and its value in that method. Clicking an index highlights the point in
+// all its plots (same as the selection table).
+function renderOutlierTable(d, idxArr, sp, sm, key, mlabel){
+  const wrap=$('trustOutlierWrap'); if(!wrap) return;
+  const nm=d.neighbor_metrics, t=d.table;
+  // classify each active point against the two fences
+  const rows=[];
+  idxArr.forEach(i=>{
+    const vp=nm.PCA[key][i], vm=nm.MDS[key][i];
+    const pOut = sp && (vp < sp.loW || vp > sp.hiW);
+    const mOut = sm && (vm < sm.loW || vm > sm.hiW);
+    if(!pOut && !mOut) return;
+    const where = pOut && mOut ? 'both' : (pOut ? 'PCA' : 'MDS');
+    // the value shown is for the method(s) it's an outlier in (PCA if 'both')
+    const val = pOut ? vp : vm;
+    rows.push({ i, index:t.ids[i], cls:t.class_names[i], code:t.labels[i], where, val });
+  });
+  if(!rows.length){ wrap.hidden=true; return; }
+  wrap.hidden=false;
+  const cnt=$('trustOutlierCount'); if(cnt) cnt.textContent=`(${rows.length}) · metric: ${mlabel}`;
+  // sortable
+  const stt=state.outlierSort;
+  rows.sort((a,b)=>{
+    let va=a[stt.key], vb=b[stt.key];
+    if(typeof va==='string') return stt.dir*va.localeCompare(vb);
+    return stt.dir*(va-vb);
+  });
+  const cols=[{k:'index',label:'index'},{k:'cls',label:'class'},{k:'where',label:'outlier in'},{k:'val',label:'value'}];
+  const tbl=$('trustOutlierTable');
+  tbl.querySelector('thead').innerHTML='<tr>'+cols.map(c=>{
+    const cl=stt.key===c.k ? (stt.dir>0?'sorted-asc':'sorted-desc') : '';
+    return `<th class="th-sort ${cl}" data-outsort="${c.k}">${c.label}</th>`;
+  }).join('')+'</tr>';
+  tbl.querySelector('tbody').innerHTML=rows.slice(0,200).map(r=>{
+    const badge = r.where==='both' ? '<span class="out-badge out-both">both</span>'
+      : r.where==='PCA' ? '<span class="out-badge out-pca">PCA</span>'
+      : '<span class="out-badge out-mds">MDS</span>';
+    return `<tr><td class="idx-click" data-pt="${r.i}">${r.index}</td>`+
+      `<td class="col-class"><span class="class-chip" style="background:${classColor(r.code)}"></span>${r.cls}</td>`+
+      `<td>${badge}</td><td class="mono">${r.val.toFixed(3)}</td></tr>`;
+  }).join('');
+  // header sort
+  tbl.querySelectorAll('th[data-outsort]').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const k=th.dataset.outsort;
+      if(state.outlierSort.key===k) state.outlierSort.dir*=-1;
+      else state.outlierSort={key:k, dir:1};
+      renderOutlierTable(d, idxArr, sp, sm, key, mlabel);
+    });
+  });
+  // index click -> pin-highlight the point in all plots
+  tbl.querySelectorAll('.idx-click').forEach(td=>{
+    td.addEventListener('click', ()=> pinPoint(parseInt(td.dataset.pt)));
+  });
 }
 
 // F1 vs JS-fidelity scatter for the chosen method, over the active subset
@@ -2065,12 +2176,15 @@ function bindTrustControls(){
   if(cy) cy.addEventListener('change', ()=>{ state.cmpY=cy.value; if(state.result) renderTrustCompare(state.result); });
   const clr=$('trustSelClear');
   if(clr) clr.addEventListener('click', ()=> clearTrustSelection());
+  const pclr=$('trustPlotClear');
+  if(pclr) pclr.addEventListener('click', ()=> clearTrustSelection());
 }
 
 // Fully reset the trust plots to their normal state: no selection, no lasso
 // box, uniform marker size, no dimming.
 function clearTrustSelection(){
   state.trustSel = null;
+  state.pinned = null;
   if(typeof Plotly!=='undefined'){
     ['trustPca','trustMds'].forEach(id=>{
       const el=$(id); if(!el||!el.data) return;
@@ -2086,6 +2200,15 @@ function clearTrustSelection(){
     renderTrustBox(state.result); renderTrustCompare(state.result);
     renderTrustSelTable(state.result); updateTrustFilterNote(state.result);
   }
+  document.querySelectorAll('.idx-click').forEach(td=>td.classList.remove('idx-pinned'));
+  updateTrustPlotClearBtn();
+}
+
+// show the scatter-plot clear button only when there's a selection or a pin
+function updateTrustPlotClearBtn(){
+  const btn=$('trustPlotClear'); if(!btn) return;
+  const has = (state.trustSel && state.trustSel.size) || state.pinned!=null;
+  btn.hidden = !has;
 }
 
 function renderAnalysisPanel(d){
