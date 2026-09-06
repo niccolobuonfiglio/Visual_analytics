@@ -256,6 +256,7 @@ function renderClassAwareDelta(d){
 
   const info = $('classAwareInfo');
   const cad = d.class_aware_delta;
+  /*
   if(info){
     if(cad){
       info.hidden = false;
@@ -265,6 +266,7 @@ function renderClassAwareDelta(d){
         `(correlation ${cad.correlation}), class-aware counts only cross-class intrusions and same-class extrusions, so it measures whether the labelled <em>class</em> structure survived, not raw geometry.`;
     } else { info.hidden = true; info.innerHTML=''; }
   }
+    */
   // legacy element (may be absent now)
   const el = $('classAwareDelta');
   if(el && cad) el.innerHTML = `differ on <strong>${cad.sign_flip_pct}%</strong> of points`;

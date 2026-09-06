@@ -1525,3 +1525,11 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 * {
     font-family: "Ubuntu", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
 }
+
+#anAnnealCard {
+    display: none !important;
+}
+
+#wmdsToggleCard {
+    display: none !important;
+}
