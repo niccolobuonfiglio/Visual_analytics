@@ -591,7 +591,22 @@ def compare_methods(X_high: NDArray[np.float64], projections: dict,
     names = list(projections)
     D_high = pairwise_distances(X_high)
 
-    WEIGHTS = {"fidelity": 0.40, "trust": 0.20, "continuity": 0.20, "cluster": 0.20}
+    # Four criteria:
+    #   fidelity      -- the toolkit's own per-point distortion (1 - mean|FP|+|FN|)
+    #   neighbourhood -- trustworthiness AND continuity consolidated into one
+    #                    (the average of the two classical measures), i.e. how
+    #                    well LOCAL neighbourhoods are preserved in both directions
+    #   shepard       -- GLOBAL distance preservation: Pearson correlation of ALL
+    #                    pairwise high-D distances against the 2-D distances (the
+    #                    classical Shepard-diagram goodness). Captures whether the
+    #                    whole distance structure is kept, not just neighbourhoods.
+    #   cluster       -- ARI of the 2-D k-means partition vs the high-D one.
+    WEIGHTS = {"fidelity": 0.30, "neighbourhood": 0.25, "shepard": 0.20, "cluster": 0.25}
+
+    # upper-triangular high-D pairwise distances (for the global Shepard corr.)
+    iu = np.triu_indices(D_high.shape[0], k=1)
+    dh_flat = D_high[iu]
+    dh_std = dh_flat.std()
 
     per_method, per_point_dist = {}, {}
     for m in names:
@@ -599,10 +614,16 @@ def compare_methods(X_high: NDArray[np.float64], projections: dict,
         tw, co = _trustworthiness_continuity(D_high, D_low, k)
         dist = np.abs(fps[m]) + np.abs(fns[m])
         per_point_dist[m] = dist
+        # global Shepard correlation of all pairwise distances
+        dl_flat = D_low[iu]
+        if dh_std > 1e-12 and dl_flat.std() > 1e-12:
+            shepard = float(np.corrcoef(dh_flat, dl_flat)[0, 1])
+        else:
+            shepard = 0.0
         comp = {
             "fidelity": float(np.clip(1.0 - dist.mean(), 0.0, 1.0)),
-            "trust": float(np.clip(tw, 0.0, 1.0)),
-            "continuity": float(np.clip(co, 0.0, 1.0)),
+            "neighbourhood": float(np.clip(0.5 * (tw + co), 0.0, 1.0)),
+            "shepard": float(np.clip(shepard, 0.0, 1.0)),
         }
         if kmeans and m in kmeans.get("methods", {}):
             comp["cluster"] = float(np.clip(

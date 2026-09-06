@@ -9,7 +9,7 @@ const state = {
   esView: 'error',         // 'error' | 'class' -> Error Space colour-by mode
   esSel: new Set(),    // Error Space: shared selection across all 3 plots
   esActiveQuad: null,  // Error Space: currently active quadrant button (or null)
-  tableSort: { key: 'worst_f1', dir: 1 },
+  tableSort: { key: 'consensus', dir: 1 },
   trustSelSort: { key: 'pca', dir: -1 },   // sort of the trust selection table
   wmdsSelSort: { key: 'move', dir: -1 },   // sort of the Mahalanobis selection table
   outlierSort: { key: 'val', dir: 1 },     // sort of the outlier table
@@ -152,7 +152,7 @@ const METRIC_INFO = {
     <p><strong>How it works.</strong> High-D centroids are projected via their own PCA so all three stages share a plane; each stage is centred and scaled to unit RMS radius, so the trajectory shows shape change, not absolute size. The mean between-centroid distance per stage indicates whether class separation is preserved.</p>` },
   adjdist: { title: 'Adjusted-distance MDS (Locality vs Mahalanobis)',
     body: `<p>Ordinary MDS uses the plain Euclidean distance, so a few dominant or noisy features can drive the whole layout. An <em>adjusted</em> distance reweights the feature space so the projection preserves neighbourhoods better. Both methods here are <strong>label-free</strong> (they use no class labels), and only the MDS panel changes, PCA and the per-point trust scores stay on the true geometry, so they remain an honest reference.</p>
-    <p><strong>Locality weighting (default).</strong> Weights each feature by its <em>Laplacian Score</em> (He, Cai &amp; Niyogi 2005): build a k-NN graph, then score a feature by how little it varies between neighbouring points relative to its total variance. Features that respect the local manifold get more weight; features that vary randomly between neighbours (noise) get less. You can then hand-tune each feature's multiplier.</p>
+    <p><strong>Locality weighting (default).</strong> Weights each feature by its <em>Laplacian Score</em> (He, Cai and; Niyogi 2005): build a k-NN graph, then score a feature by how little it varies between neighbouring points relative to its total variance. Features that respect the local manifold get more weight; features that vary randomly between neighbours (noise) get less. You can then hand-tune each feature's multiplier.</p>
     <p><strong>Mahalanobis.</strong> Whitens the space by the inverse covariance, d = √((a−b)ᵀΣ⁻¹(a−b)). It is the classical adjusted distance, but whitening <em>amplifies</em> low-variance directions, which are frequently noise, so on the datasets here it tends to make neighbourhood-F1 <em>worse</em>. The panel measures this rather than assuming it, which is why locality weighting is the default: it succeeds where Mahalanobis fails.</p>
     <p><strong>How effectiveness is verified.</strong> The panel re-embeds MDS with the adjusted distance and reports the neighbourhood-F1 and the false-positive (intrusion) / false-negative (extrusion) rates of the plain vs adjusted layout, so you can see directly whether the adjusted distance reduces distortion.</p>` },
   classaware: { title: 'Class-aware trust analysis',
@@ -162,7 +162,7 @@ const METRIC_INFO = {
   mahalanobis: { title: 'Mahalanobis metric learning',
     body: `<p><strong>What it is.</strong> An MDS layout built from the <em>Mahalanobis</em> distance instead of the plain Euclidean distance. The Mahalanobis distance is d(a,b) = &radic;((a&minus;b)&#7488; &Sigma;&#8315;&sup1; (a&minus;b)), where &Sigma; is the data covariance,; equivalent to whitening the space (rotating and rescaling by the inverse covariance) and then measuring ordinary distance.</p>
     <p><strong>What it's useful for.</strong> Plain Euclidean distance lets high-variance and correlated directions dominate, so the layout can be driven by a few dominant or redundant features. Mahalanobis puts every direction on equal footing, which is the classical &ldquo;adjusted distance&rdquo; of unsupervised metric learning. Crucially it is <strong>label-free</strong>,; it uses no class labels, only the data's own covariance,; so any improvement is a property of the geometry, not of the labels.</p>
-    <p><strong>How it works &amp; how we verify it.</strong> Only the MDS panel uses the adjusted distance; PCA and the per-point trust scores stay on the true (unwhitened) Euclidean geometry, so they remain an honest reference. The comparison panel puts the plain and Mahalanobis layouts side by side and,; the important part,; reports the neighbourhood-F1 and the false-positive (intrusion) and false-negative (extrusion) rates of each. That lets you check whether the adjusted distance genuinely reduces distortion. It does not always: whitening amplifies low-variance directions, which on some data are noise, so the tool measures the effect rather than assuming it.</p>` },
+    <p><strong>How it works and; how we verify it.</strong> Only the MDS panel uses the adjusted distance; PCA and the per-point trust scores stay on the true (unwhitened) Euclidean geometry, so they remain an honest reference. The comparison panel puts the plain and Mahalanobis layouts side by side and,; the important part,; reports the neighbourhood-F1 and the false-positive (intrusion) and false-negative (extrusion) rates of each. That lets you check whether the adjusted distance genuinely reduces distortion. It does not always: whitening amplifies low-variance directions, which on some data are noise, so the tool measures the effect rather than assuming it.</p>` },
   weightedmds: { title: 'Weighted MDS',
     body: `<p><strong>What it is.</strong> An MDS layout in which each feature is scaled by its mutual information with the class label before distances are computed.</p>
     <p><strong>What it's useful for.</strong> Ordinary MDS lets noisy or redundant features dominate the geometry as much as informative ones. Weighting is a controlled experiment: "what would the layout look like if the class-informative measurements counted more?" It is most useful on data with many irrelevant features.</p>
@@ -349,6 +349,7 @@ function bindControls(){
   };
   echo('neighbors','kEcho');
   echo('threshold','threshEcho',(v)=>parseFloat(v).toFixed(2));
+  echo('untrustFloor','floorEcho',(v)=>parseFloat(v).toFixed(2));
   if($('recallAlpha')) echo('recallAlpha','recallAlphaEcho',(v)=>parseFloat(v).toFixed(2));
 
   // CSV upload
@@ -425,6 +426,7 @@ function collectParams(){
     normalize: 'none',
     no_standardize: $('noStandardize').checked,
     threshold: parseFloat($('threshold').value),
+    untrust_floor: parseFloat($('untrustFloor').value), 
     weighted_mds: $('weightedMds') ? $('weightedMds').checked : false,
     weight_method: 'mahalanobis',
     adj_method: state.adjMethod,
@@ -646,7 +648,7 @@ function renderStatbar(d){
     pill('Samples', info.n_samples, '', `${info.n_features} features | ${info.n_classes} classes`) +
     (d.timings ? pill('PCA time', (d.timings.pca_ms).toFixed(0)+' ms', '', 'compute') : '') +
     (d.timings ? pill('MDS time', (d.timings.mds_ms).toFixed(0)+' ms', signCls(d.timings.pca_ms - d.timings.mds_ms), 'compute') : '') +
-    pill('Untrustworthy', s.untrustworthy_count, '', d.untrust_desc || 'low F1') +
+    pill('Untrustworthy', s.untrustworthy_count, '', d.untrust_desc || 'consensus') +
     pill('Runtime', info.elapsed+'s', '', 'pipeline');
   renderWarnings(d);
 }
@@ -932,11 +934,11 @@ function renderCentroids(d){
 const TABLE_COLS = [
   { key:'index', label:'index' },
   { key:'true_class', label:'class', cls:'col-class' },
-  { key:'worst_f1', label:'worst F1', score:true },
-  { key:'pca_f1', label:'PCA F1', score:true },
-  { key:'mds_f1', label:'MDS F1', score:true },
-  { key:'pca_js', label:'PCA JS', score:true },
-  { key:'mds_js', label:'MDS JS', score:true },
+  { key:'consensus', label:'consensus', score:true },
+  { key:'pca_consensus', label:'PCA', score:true },
+  { key:'mds_consensus', label:'MDS', score:true },
+  { key:'which', label:'untrustworthy in', badge:true },
+  { key:'agree', label:'metrics agree', plain:true },
 ];
 function renderTable(d){
   const rows = d.untrustworthy.slice();
@@ -967,6 +969,13 @@ function renderTable(d){
       const cls = t<0.34?'cell-fn':(t<0.67?'cell-zero':'cell-fp');
       return `<td class="${cls}">${v.toFixed(3)}</td>`;
     }
+    if(c.badge){
+      const b = v==='both' ? '<span class="out-badge out-both">both</span>'
+        : v==='PCA' ? '<span class="out-badge out-pca">PCA</span>'
+        : '<span class="out-badge out-mds">MDS</span>';
+      return `<td>${b}</td>`;
+    }
+    if(c.plain){ return `<td class="mono">${v}</td>`; }
     if(c.err){
       const cls = v<0?'cell-fn':(v>0?'cell-fp':'cell-zero');
       return `<td class="${cls}">${v>=0?'+':''}${v.toFixed(3)}</td>`;
@@ -1143,7 +1152,7 @@ function renderFeatWeights(d){
     `<div class="fw-head">Feature weights <span class="an-subtle">drag to boost/suppress a feature, then apply</span></div>`+
     `<div class="fw-list">${rows}</div>`+
     `<div class="fw-actions"><button class="ghost-btn ghost-btn-sm" id="fwReset">Reset weights</button>`+
-    `<button class="run-btn run-btn-sm" id="fwApply">Apply &amp; re-run</button></div>`;
+    `<button class="run-btn run-btn-sm" id="fwApply">Apply and; re-run</button></div>`;
   box.querySelectorAll('.fw-slider').forEach(s=>{
     s.addEventListener('input', ()=>{ const el=$(`fwmult-${s.dataset.fw}`); if(el) el.textContent='×'+parseFloat(s.value).toFixed(1); });
   });
@@ -1271,8 +1280,10 @@ function renderWmdsCompare(d){
       const dx=weightXY.x[i]-plainXY.x[i], dy=weightXY.y[i]-plainXY.y[i];
       const move=Math.hypot(dx,dy);
       const metricCells=(mth)=>METRIC_KEYS.map(k=>`${METRIC_LABELS[k]||k} <strong>${nmr[mth][k][i].toFixed(3)}</strong>`).join(', ');
+      const kUsed = (nmr.MDS.k_used && nmr.MDS.k_used[i]!=null) ? nmr.MDS.k_used[i] : null;
       ro.innerHTML =
         `<span class="hr-idx">idx ${tt.ids[i]}</span> <span class="class-chip" style="background:${classColor(tt.labels[i])}"></span>${tt.class_names[i]}, moved <strong>${move.toFixed(2)}</strong> plain→adjusted`+
+        (kUsed!=null ? ` <span class="hr-k">k = ${kUsed}</span>` : '')+
         `<span class="hr-row"><span class="hr-m">PCA</span> ${metricCells('PCA')}</span>`+
         `<span class="hr-row"><span class="hr-m">MDS</span> ${metricCells('MDS')}</span>`;
     }
@@ -1620,7 +1631,7 @@ function renderLabelsBanner(d){
 
 function componentBars(pm){
   // pm: per_method dict. Build a small aligned bar table for the 4 components.
-  const comps = ['fidelity','trust','continuity','cluster'];
+  const comps = ['fidelity','neighbourhood','shepard','cluster'];
   const methods = Object.keys(pm);
   let html = '<table class="an-comp-table"><thead><tr><th>criterion</th>';
   methods.forEach(m=> html += `<th>${m}</th>`);
@@ -1733,10 +1744,10 @@ const F1_SCALE = [[0,'#d24b52'],[0.5,'#e0a54b'],[1,'#4ec97a']];  // red→amber�
 
 // the two projections coloured by the chosen per-point score
 const F1_SCALE_LOCAL = [[0,'#d24b52'],[0.5,'#e0a54b'],[1,'#4ec97a']];
-const METRIC_KEYS = ['f1','js_fidelity','localstress','mrre','lindist'];
+const METRIC_KEYS = ['f1','js_fidelity','localstress','normstress'];
 
 function renderTrustProjections(d){
-    if(typeof Plotly==='undefined') return;
+  if(typeof Plotly==='undefined') return;
   const nm = d.neighbor_metrics, key = state.trustMetric;
   const t = d.table, ids = t.ids;
   const active = trustActiveSet(d);
@@ -1814,48 +1825,81 @@ function renderTrustProjections(d){
   });
   const cfg = Object.assign({}, PLOT_CONFIG, {modeBarButtonsToAdd:['select2d','lasso2d']});
   
+  // Render the plots
   Plotly.react('trustPca', [mk(t.pca, nm.PCA[key]), ringTrace(t.pca)], lay('PCA'), cfg);
   Plotly.react('trustMds', [mk(t.mds, nm.MDS[key]), ringTrace(t.mds)], lay('MDS'), cfg);
+  
   // reflect current selection as rings
   if((state.trustSel && state.trustSel.size) || state.pinned!=null) applyTrustRings(d, state.trustSel || new Set());
 
-  // (Re)bind interaction handlers AFTER every react. scattergl can drop its
-  // selection listeners when the traces are replaced (e.g. on a metric or
-  // colour-by switch), so we clear and re-attach every time rather than once,
-  // this is what makes brushing work under JS fidelity / classes view too.
+  // --- DEFINE AND ATTACH EVENT HANDLERS ---
   const pcaEl=$('trustPca'), mdsEl=$('trustMds');
+  
   const onSel = (ev)=>{
     if(!ev || !ev.points){ return; }
     const idx = new Set(ev.points.filter(p=>p.curveNumber===0).map(p=>p.pointIndex));
     state.trustSel = idx.size ? idx : null;
     applyTrustRings(state.result, state.trustSel || new Set());
-    renderTrustBox(state.result); renderTrustCompare(state.result);
-    renderTrustSelTable(state.result); updateTrustFilterNote(state.result);
+    renderTrustBox(state.result); 
+    renderTrustCompare(state.result);
+    renderTrustSelTable(state.result); 
+    updateTrustFilterNote(state.result);
     updateTrustPlotClearBtn();
+    updateFilterStatus(state.result);
   };
-  const onDesel = ()=>{ clearTrustSelection(); };
-  const onHover = (ev)=>{ if(!ev||!ev.points||!ev.points.length) return;
+  
+  const onDesel = ()=>{ 
+    clearTrustSelection(); 
+  };
+  
+  const onHover = (ev)=>{ 
+    if(!ev||!ev.points||!ev.points.length) return;
     const p=ev.points.find(pt=>pt.curveNumber===0); if(!p) return;
     const i=p.pointIndex;
-    applyTrustRings(state.result, new Set([i]), /*hover*/true);
-    // show the point's stats (all metrics, both projections) in the readout
+    // Save current selection and add hover point
+    const currentSel = state.trustSel || new Set();
+    const ringSet = new Set(currentSel);
+    ringSet.add(i);
+    applyTrustRings(state.result, ringSet, /*hover*/true);
+    
+    // Show the point's stats
     const ro=$('trustHover'); const r=state.result;
     if(ro && r){ const nmr=r.neighbor_metrics, tt=r.table;
       const fmt=(v)=>v.toFixed(3);
       const metricCells=(mth)=>METRIC_KEYS.map(k=>`${METRIC_LABELS[k]||k} <strong>${fmt(nmr[mth][k][i])}</strong>`).join(', ');
+      const kUsed = (nmr.MDS.k_used && nmr.MDS.k_used[i]!=null) ? nmr.MDS.k_used[i] : null;
       ro.innerHTML =
         `<span class="hr-idx">idx ${tt.ids[i]}</span> <span class="class-chip" style="background:${classColor(tt.labels[i])}"></span>${tt.class_names[i]}`+
+        (kUsed!=null ? ` <span class="hr-k">k = ${kUsed}</span>` : '')+
         `<span class="hr-row"><span class="hr-m">PCA</span> ${metricCells('PCA')}</span>`+
         `<span class="hr-row"><span class="hr-m">MDS</span> ${metricCells('MDS')}</span>`;
     }
   };
+  
   const onUnhover = ()=>{ 
-    // Restore the filter selection (not just the trust selection)
+    // Restore the filter selection
     const sel = state.trustSel || new Set();
     applyTrustRings(state.result, sel);
     const ro=$('trustHover'); 
     if(ro) ro.innerHTML='Hover a point to see its scores in both projections; it is highlighted in the other plot too.'; 
   };
+
+  // Attach event handlers to both plots
+  [pcaEl, mdsEl].forEach(el=>{
+    if(el && el.on){
+      // Remove old listeners to avoid duplicates
+      if(el.removeAllListeners){
+        el.removeAllListeners('plotly_selected');
+        el.removeAllListeners('plotly_deselect');
+        el.removeAllListeners('plotly_hover');
+        el.removeAllListeners('plotly_unhover');
+      }
+      el.on('plotly_selected', onSel);
+      el.on('plotly_deselect', onDesel);
+      el.on('plotly_hover', onHover);
+      el.on('plotly_unhover', onUnhover);
+    }
+  });
 }
 
 // draw highlight rings for a set of point indices on BOTH trust projections
@@ -1864,19 +1908,22 @@ function applyTrustRings(d, idxSet, hover){
   const t=d.table;
   const sel=[...idxSet];
   const pin = state.pinned;
-  // Build the ring set = selection/hover points + the pinned point (if any).
-  // Per-point colours: selection/hover use white/amber; the pinned point is
-  // drawn green so a clicked index stands out in every plot.
   const baseCol = hover ? '#e0a54b' : '#e8edf3';
   const idxList = sel.slice();
   const colors = sel.map(()=>baseCol);
   if(pin!=null && !idxList.includes(pin)){ idxList.push(pin); colors.push('#4ec97a'); }
   else if(pin!=null){ colors[idxList.indexOf(pin)] = '#4ec97a'; }
+  
   ['trustPca','trustMds'].forEach(id=>{
     const el=$(id); if(!el||!el.data) return;
     const xy = id==='trustPca' ? t.pca : t.mds;
-    Plotly.restyle(id, { x:[idxList.map(i=>xy.x[i])], y:[idxList.map(i=>xy.y[i])],
-      'marker.line.color':[colors] }, [1]);
+    // Find which trace index is the ring trace (should be index 1)
+    const ringIdx = 1; // The ring trace is the second trace
+    Plotly.restyle(id, { 
+      x: [idxList.map(i=>xy.x[i])], 
+      y: [idxList.map(i=>xy.y[i])],
+      'marker.line.color': [colors] 
+    }, ringIdx);
   });
 }
 
@@ -2026,7 +2073,7 @@ function renderTrustSelTable(d){
 }
 
 const METRIC_LABELS = { f1:'neighbour F1', js_fidelity:'JS fidelity',
-  localstress:'local stress', mrre:'MRRE', lindist:'linear dist' };
+  localstress:'local stress', normstress:'norm. stress' };
 
 // quartile helper
 function quantile(sorted, q){
@@ -2397,8 +2444,8 @@ function renderVerdictCard(d){
       '<div class="verdict-col-weights">' +
         '<div class="wtsliders wtsliders-sm" id="wtSliders">'+
           '<h4>Adjust the weights <span class="an-subtle">must sum to 100%</span></h4>'+
-          wtSliderRow('fidelity', 0.25) + wtSliderRow('trust', 0.25) +
-          wtSliderRow('continuity', 0.25) + wtSliderRow('cluster', 0.25) +
+          wtSliderRow('fidelity', 0.30) + wtSliderRow('neighbourhood', 0.25) +
+          wtSliderRow('shepard', 0.20) + wtSliderRow('cluster', 0.25) +
           '<div class="wt-sum-row"><span id="wtSum">sum: 100%</span>'+
             '<button class="ghost-btn ghost-btn-sm" id="wtReset">Reset</button>'+
             '<button class="run-btn run-btn-sm" id="wtRerun">Re-run</button></div>'+
@@ -2418,18 +2465,18 @@ const CRITERION_INFO = {
     body: `<p><strong>What it is.</strong> The per-point neighbourhood-preservation error averaged over all points, turned into a 0&ndash;1 score (higher = better). It is the toolkit's own intrusion/extrusion metric: for each point it counts how many of its true high-D neighbours the projection keeps and how many strangers it wrongly pulls in.</p>
     <p><strong>How it's calculated.</strong> Per point, FP = rank-weighted intrusions (points close in 2-D but far in high-D) and FN = rank-weighted extrusions (true neighbours pushed away); the score is 1 &minus; mean(|FP| + |FN|). It is the only <em>per-point</em> component, which is why it usually carries the most weight by default.</p>
     <p><strong>Why it is indicative.</strong> It directly measures the thing the projection is supposed to do,; preserve local neighbourhoods,; so a method that scores high here distorts fewer points.</p>` },
-  trust: { title: 'Trustworthiness criterion',
-    body: `<p><strong>What it is.</strong> The classical trustworthiness score (Venna &amp; Kaski): it penalises <em>false neighbours</em>,; points that appear close in the 2-D projection but are actually far apart in high-D. In [0, 1], higher = fewer false neighbours.</p>
-    <p><strong>How it's calculated.</strong> For each point, it sums how many rank positions each intruding 2-D neighbour is displaced from its true high-D rank, normalised so 1 is perfect. It is an established, aggregate metric, included as an independent cross-check from the literature.</p>
-    <p><strong>Why it is indicative.</strong> It answers &ldquo;can I trust that points shown close together really are close?&rdquo;,; the credibility of the projection's neighbourhoods.</p>` },
-  continuity: { title: 'Continuity criterion',
-    body: `<p><strong>What it is.</strong> The dual of trustworthiness: it penalises <em>missing neighbours</em>,; points that are genuinely close in high-D but get pushed apart in the projection. In [0, 1], higher = fewer missing neighbours.</p>
-    <p><strong>How it's calculated.</strong> For each point, it sums how many rank positions each true high-D neighbour is displaced in the 2-D ordering, normalised so 1 is perfect.</p>
-    <p><strong>Why it is indicative.</strong> It answers &ldquo;did the projection tear apart groups that were together?&rdquo;,; the completeness of the projection's neighbourhoods. Together, trust and continuity capture the two directions of neighbourhood error.</p>` },
+  neighbourhood: { title: 'Neighbourhood criterion',
+    body: `<p><strong>What it is.</strong> How well the projection preserves each point's <em>local neighbourhood</em>, in both directions at once. It consolidates the two classical measures &mdash; trustworthiness and continuity (Venna and; Kaski) &mdash; into a single score by averaging them. In [0, 1], higher = better.</p>
+    <p><strong>How it's calculated.</strong> <em>Trustworthiness</em> penalises <em>false neighbours</em> (points close in 2-D but far in high-D); <em>continuity</em> penalises <em>missing neighbours</em> (points close in high-D but pushed apart in 2-D). Each sums the rank displacements of the offending neighbours, normalised so 1 is perfect; the component is their mean.</p>
+    <p><strong>Why it is indicative.</strong> It answers &ldquo;can I trust that points shown close together really are close, and that close things stayed together?&rdquo; &mdash; the credibility and completeness of the projection's neighbourhoods in one number.</p>` },
+  shepard: { title: 'Shepard criterion (global distance preservation)',
+    body: `<p><strong>What it is.</strong> How well the projection preserves <em>all</em> pairwise distances, not just neighbourhoods. In [0, 1], higher = the 2-D distances track the high-D distances across the whole dataset.</p>
+    <p><strong>How it's calculated.</strong> The Pearson correlation between every pair's high-D distance and its 2-D distance &mdash; the numerical version of the classical Shepard diagram (a scatter of high-D vs 2-D distances). Clamped to [0, 1].</p>
+    <p><strong>Why it is indicative.</strong> The neighbourhood criterion only checks local structure; this one checks the <em>global</em> geometry &mdash; whether far-apart clusters are shown far apart and the overall shape is preserved. A projection can have good neighbourhoods but a distorted global layout, and this catches that.</p>` },
   cluster: { title: 'Cluster-preservation criterion',
     body: `<p><strong>What it is.</strong> How well the projection preserves the data's cluster structure, measured label-free. In [0, 1], higher = the 2-D grouping matches the high-D grouping.</p>
     <p><strong>How it's calculated.</strong> k-means is run in the high-D space and in the 2-D projection, and the two partitions are compared with the Adjusted Rand Index (ARI), which is corrected for chance. No class labels are used, so it is a purely structural comparison.</p>
-    <p><strong>Why it is indicative.</strong> The other three criteria are neighbourhood-based (local); this one checks global cluster structure,; whether the clumps you see in the projection correspond to real clumps in the data.</p>` },
+    <p><strong>Why it is indicative.</strong> It checks whether the clumps you see in the projection correspond to real clumps in the data.</p>` },
 };
 function bindCriterionInfo(){
   document.querySelectorAll('#anVerdictComponents .an-comp-name').forEach(cell=>{
@@ -2517,7 +2564,7 @@ function renderVerdictCharts(d){
   const v = d.verdict; if(!v) return;
   const pm = v.per_method;
   const methods = Object.keys(pm);
-  const comps = ['fidelity','trust','continuity','cluster'];
+  const comps = ['fidelity','neighbourhood','shepard','cluster'];
   const present = comps.filter(c => methods.some(m => pm[m].components && pm[m].components[c]!=null));
 
   // --- grouped bar chart: four components x two methods ---
@@ -2862,8 +2909,6 @@ function openVerdictModal(){
     (p.decisive ? 'The interval excludes zero, the win is reliable.'
                 : (p.tie ? 'Within the tie threshold.' : 'The interval crosses zero, provisional.'))+
     `</div>`;
-  html += `<div class="an-why" style="margin-top:12px"><strong>How to read this.</strong> `+
-    `Fidelity (weight 0.40) is the per-point distortion; trust and continuity (0.20 each) are the classical neighbour-preservation scalars; cluster (0.20) is how well each projection preserves the k-means partition. Weights are fixed, not tuned, and every component is shown so you can weigh them yourself.</div>`;
   body.innerHTML = html;
   $('verdictModal').hidden = false;
 }

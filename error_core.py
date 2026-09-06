@@ -526,41 +526,40 @@ def per_point_neighbor_metrics(X_high: NDArray[np.float64],
         local_stress[i] = 1.0 - stress
     local_stress = np.clip(local_stress, 0.0, 1.0)
 
-    # ---- per-point Mean Relative Rank Error (MRRE), as a fidelity ----
-    # MRRE penalises rank differences of a point's k nearest neighbours between
-    # the two spaces (a smoother version of trustworthiness/continuity). We report
-    # a per-point fidelity = 1 - normalised-MRRE in [0, 1].
-    rank_l = np.argsort(np.argsort(Dl, axis=1), axis=1).astype(float)
-    mrre_fid = np.zeros(n)
-    order_h_i = np.argsort(Dh, axis=1)
+    # ---- per-point NORMALIZED STRESS (distance-magnitude, NOT rank-based) ----
+    # Kruskal-style normalized stress over each point's neighbourhood, using the
+    # ACTUAL distance magnitudes (no rank weighting, no per-neighbour scaling):
+    #     stress_i = sum_j (d_hi(i,j) - s*d_2d(i,j))^2 / sum_j d_hi(i,j)^2
+    # where s is the optimal single scale that minimises the numerator
+    # (s = <d_hi,d_2d>/<d_2d,d_2d>), so it is invariant to the global size of the
+    # 2-D layout but NOT to the relative stretching/squashing of individual
+    # distances -- which is exactly the distortion we want to see. Reported as
+    # fidelity = 1 - stress, clamped to [0, 1]. This produces a much wider,
+    # better-distributed per-point (and per-class) score than the set/rank
+    # metrics, which tend to saturate near 1.
+    normstress = np.zeros(n)
     for i in range(n):
         ki = int(k_vec[i]) if k_vec is not None else int(k)
         ki = max(1, min(ki, n - 1))
-        neigh = order_h_i[i, :ki]
-        # rank of each high-D neighbour in the 2-D ordering (1-based)
-        r_l = rank_l[i, neigh] + 1.0
-        r_h = np.arange(1, ki + 1)
-        err = np.sum(np.abs(r_l - r_h) / r_h)
-        norm = np.sum(np.abs((n - np.arange(1, ki + 1)) ) / np.arange(1, ki + 1)) or 1.0
-        mrre_fid[i] = float(1.0 - min(err / norm, 1.0))
-    mrre_fid = np.clip(mrre_fid, 0.0, 1.0)
+        neigh = order_h[i, :ki]
+        dh = Dh[i, neigh].astype(float)
+        dl = Dl[i, neigh].astype(float)
+        denom = float(np.dot(dh, dh))
+        if denom <= 1e-12:
+            normstress[i] = 1.0
+            continue
+        dd = float(np.dot(dl, dl))
+        s = float(np.dot(dh, dl) / dd) if dd > 1e-12 else 0.0   # optimal scale
+        num = float(np.sum((dh - s * dl) ** 2))
+        normstress[i] = 1.0 - (num / denom)
+    normstress = np.clip(normstress, 0.0, 1.0)
 
-    # ---- per-point LINEAR distance preservation (Pearson) ----
-    # For each point, the Pearson correlation between its ACTUAL high-D distances
-    # and its ACTUAL 2-D distances to every other point. Unlike Local Stress
-    # (a local, rank-weighted squared error) or MRRE (rank-based), this asks
-    # whether the projection preserved the point's distances *linearly* across
-    # the whole dataset: a high value means "twice as far in high-D => about
-    # twice as far in 2-D". Rescaled from [-1, 1] to [0, 1] as (r + 1) / 2 so it
-    # reads like the other fidelities (higher = better).
-    lindist = np.zeros(n)
-    for i in range(n):
-        a = np.delete(Dh[i], i).astype(float)
-        b = np.delete(Dl[i], i).astype(float)
-        sa, sb = a.std(), b.std()
-        if sa > 1e-12 and sb > 1e-12:
-            lindist[i] = float(np.corrcoef(a, b)[0, 1])
-    lindist = np.clip((lindist + 1.0) / 2.0, 0.0, 1.0)
+    # per-point neighbourhood size actually used (for display; especially useful
+    # under adaptive k where every point has a different k)
+    if k_vec is not None:
+        kv_out = [int(max(1, min(int(k_vec[i]), n - 1))) for i in range(n)]
+    else:
+        kv_out = [int(k)] * n
 
     return {
         "precision": prec.tolist(),
@@ -569,14 +568,14 @@ def per_point_neighbor_metrics(X_high: NDArray[np.float64],
         "js": js.tolist(),
         "js_fidelity": js_fid.tolist(),
         "localstress": local_stress.tolist(),
-        "mrre": mrre_fid.tolist(),
-        "lindist": lindist.tolist(),
+        "normstress": normstress.tolist(),
+        "k_used": kv_out,
         "mean": {
             "precision": float(prec.mean()), "recall": float(rec.mean()),
             "f1": float(f1.mean()), "js": float(js.mean()),
             "js_fidelity": float(js_fid.mean()),
-            "localstress": float(local_stress.mean()), "mrre": float(mrre_fid.mean()),
-            "lindist": float(lindist.mean()),
+            "localstress": float(local_stress.mean()),
+            "normstress": float(normstress.mean()),
         },
     }
 

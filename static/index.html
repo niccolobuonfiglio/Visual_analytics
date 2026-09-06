@@ -68,7 +68,7 @@
             </div>
             <label class="check">
               <input type="checkbox" id="adaptive" checked>
-              <span>Adaptive k <span class="hint">per-point, by local density,; recommended</span></span>
+              <span>Adaptive k <span class="hint">per-point, by local density, recommended</span></span>
             </label>
             <p class="ctl-note" style="margin-top:2px">Recommended: a single global
               <em>k</em> is too coarse in dense regions and too noisy in sparse ones.
@@ -83,10 +83,16 @@
             <span class="ctl-num">03</span>
             <h2>Display</h2>
           </div>
-          <label class="field">
+          <label class="field" id="untrustworthy-error">
             <span class="field-label">Untrustworthy |error| ≥ <span class="mono" id="threshEcho">0.50</span></span>
             <input type="range" id="threshold" class="slider" min="0.01" max="1" step="0.01" value="0.5">
           </label>
+          <label class="field">
+            <span class="field-label">Consensus floor <span class="mono" id="floorEcho">0.30</span></span>
+            <input type="range" id="untrustFloor" class="slider" min="0.05" max="0.60" step="0.01" value="0.30">
+          </label>
+          <p class="ctl-note" style="margin-top:2px">Lower floor = more points flagged as untrustworthy. Higher floor = only the worst points are flagged.</p>
+          <div class="panel-caption">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a user-adjustable floor. Adjust the "Consensus floor" slider in the Display controls to make it more or less strict. <span id="tableMeta"></span></div>
         </section>
 
       </div>
@@ -246,10 +252,11 @@
                 <button class="seg-btn active" data-tm="f1">neighbour F1</button>
                 <button class="seg-btn" data-tm="js_fidelity">JS fidelity</button>
                 <button class="seg-btn" data-tm="localstress">local stress</button>
-                <button class="seg-btn" data-tm="mrre">MRRE</button>
-                <button class="seg-btn" data-tm="lindist">linear dist</button>
+                <button class="seg-btn" data-tm="normstress">norm. stress</button>
               </span>
+              <!-- 
               <button class="info-btn" data-info="trustmetrics" title="What do these metrics mean?">i</button>
+              -->
             </div>
             <div class="trust-ctl-group">
               <span class="trust-ctl-label">Colour by</span>
@@ -260,10 +267,14 @@
             </div>
             <div class="trust-ctl-group">
               <label class="check check-inline">
+                <!--
                 <input type="checkbox" id="classAware">
                 <span>Class-aware <span class="hint">use labels; show k-means</span></span>
+                -->
               </label>
-              <button class="info-btn" data-info="classaware" title="What is class-aware?">i</button>
+              <!-- 
+                <button class="info-btn" data-info="classaware" title="What is class-aware?">i</button>
+              -->
             </div>
           </div>
           <div class="classaware-info" id="classAwareInfo" hidden></div>
@@ -351,23 +362,23 @@
           </div>
 
           <h4 data-info-title="metriccompare" class="has-info">Compare two metrics, where they disagree</h4>
+          <!--
           <div class="panel-caption" style="margin-bottom:6px">Each point plotted by one fidelity metric (x) against another (y), for the chosen method. Points on the diagonal agree; points <strong>far off the diagonal are judged very differently by the two metrics</strong>. Pick which two metrics to compare below. Those off-diagonal points are the interesting, ambiguous ones.</div>
+          -->
           <div class="trust-ctl-group" style="margin-bottom:6px; gap:14px; flex-wrap:wrap">
             <span class="cmp-axis-pick"><span class="trust-ctl-label">X axis</span>
               <select id="cmpXSel" class="inp inp-sm">
                 <option value="f1">neighbour F1</option>
                 <option value="js_fidelity">JS fidelity</option>
                 <option value="localstress">local stress</option>
-                <option value="mrre">MRRE</option>
-                <option value="lindist">linear dist</option>
+                <option value="normstress">norm. stress</option>
               </select></span>
             <span class="cmp-axis-pick"><span class="trust-ctl-label">Y axis</span>
               <select id="cmpYSel" class="inp inp-sm">
                 <option value="f1">neighbour F1</option>
                 <option value="js_fidelity" selected>JS fidelity</option>
                 <option value="localstress">local stress</option>
-                <option value="mrre">MRRE</option>
-                <option value="lindist">linear dist</option>
+                <option value="normstress">norm. stress</option>
               </select></span>
             <span class="cmp-axis-pick"><span class="trust-ctl-label">Method</span>
               <span class="seg seg-sm" id="cmpMethodSeg">
@@ -378,7 +389,7 @@
           <div class="plot" id="trustCompare" style="height:340px"></div>
           <section class="flatpanel" data-panel="table">
             <h3 class="panel-title" data-info-title="untrustworthy">Untrustworthy Points</h3>
-            <div class="panel-caption">Points you cannot trust, flagged by <strong>low per-point neighbourhood F1</strong> (the worse of the two methods), with each point's F1 and JS fidelity for PCA and MDS. Low = untrustworthy. <span id="tableMeta"></span></div>
+            <div class="panel-caption">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a statistical fence (Q1&nbsp;&minus;&nbsp;1.5&times;IQR) or a 0.3 floor. The table shows each point's consensus, its per-projection consensus, which projection it is untrustworthy in, and which metrics agree it is bad. <span id="tableMeta"></span></div>
             <div class="table-wrap">
               <table class="dtable" id="dtable">
                 <thead></thead>
@@ -467,6 +478,8 @@
           </div>
 
            <!-- ADJUSTED-DISTANCE COMPARISON: always shown -->
+
+          <!--
           <div class="an-card wmds-compare" id="wmdsCompare">
             <div class="wmds-head">
               <span class="wmds-title" data-info-title="adjdist">Plain vs adjusted MDS</span>
@@ -488,6 +501,7 @@
                 <table class="dtable" id="wmdsSelTable"><thead></thead><tbody></tbody></table>
               </div>
             </div>
+          -->
           </div>
         </section>
 
@@ -515,7 +529,6 @@
       </div>
       <div class="modal-body" id="vmBody"></div>
       <div class="modal-foot">
-        <button class="ghost-btn" id="vmGotoTab">Open Verdict &amp; Analysis tab</button>
         <button class="run-btn run-btn-sm" id="vmDone">Done</button>
       </div>
     </div>

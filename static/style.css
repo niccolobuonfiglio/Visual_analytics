@@ -1552,3 +1552,18 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 #noStandardize {
     display: none !important;
 }
+/* adaptive-k badge in the hover readout */
+.hr-k{ display:inline-block; margin-left:8px; padding:1px 7px; border-radius:10px;
+  font-family:var(--mono, monospace); font-size:10.5px; background:rgba(126,224,160,0.16); color:#7ee0a0; }
+
+#intrusionPanel .field:first-child {
+    display: none !important;
+}
+
+#adaptkMini {
+    display: none !important;
+}
+
+#untrustworthy-error {
+    display: none !important;
+}
