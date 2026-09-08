@@ -70,10 +70,10 @@
               <input type="checkbox" id="adaptive" checked>
               <span>Adaptive k <span class="hint">per-point, by local density, recommended</span></span>
             </label>
-            <p class="ctl-note" style="margin-top:2px">Recommended: a single global
+            <p class="ctl-note" style="margin-top:2px">A single global
               <em>k</em> is too coarse in dense regions and too noisy in sparse ones.
               Adaptive <em>k</em> gives each point a neighbourhood sized to its local
-              density (the slider then sets the <em>median</em> point&rsquo;s k), so
+              density (the slider then sets the <em>median</em> point k), so
               the fidelity metric is fair across regions of differing density.</p>
           </div>
         </section>
@@ -157,7 +157,7 @@
               <span>Class-aware error <span class="hint">measure class-structure fidelity instead of pure geometry</span></span>
             </label>
             <span class="inline-toggle-metric" id="classAwareDelta"></span>
-            <p class="inline-toggle-note">By default the error is <strong>geometric</strong>: it counts <em>any</em> broken neighbour, measuring whether the projection preserved the data&rsquo;s geometry,; with no assumption that the labels are right. <strong>Class-aware</strong> counts only <em>cross-class</em> intrusions and <em>same-class</em> extrusions, so it measures whether the projection preserved the labelled <em>class</em> structure. The two can disagree sharply (on Wine, on ~70% of points), which is itself informative: a point distorted geometrically but faithful class-wise had its neighbourhood reshuffled only <em>within</em> its own class. The number on the right reports how much the two modes differ on the current data.</p>
+            <p class="inline-toggle-note">By default the error is <strong>geometric</strong>: it counts <em>any</em> broken neighbour, measuring whether the projection preserved the data&rsquo;s geometry, with no assumption that the labels are right. <strong>Class-aware</strong> counts only <em>cross-class</em> intrusions and <em>same-class</em> extrusions, so it measures whether the projection preserved the labelled <em>class</em> structure. The two can disagree sharply (on Wine, on ~70% of points), which is itself informative: a point distorted geometrically but faithful class-wise had its neighbourhood reshuffled only <em>within</em> its own class. The number on the right reports how much the two modes differ on the current data.</p>
           </div>
 
           <div class="es-quadrants" id="esQuadrants">
@@ -242,160 +242,141 @@
 
         <!-- TRUST ANALYSIS PANEL: per-point neighbourhood-preservation F1 -->
         <section class="flatpanel" data-panel="trust">
-          <h3 class="panel-title" data-info-title="neighborf1">Trust Analysis, which points can I not trust?</h3>
+          <h3 class="panel-title" data-info-title="neighborf1">Trust Analysis</h3>
           <!-- <div class="panel-caption">Each point acts as a <strong>classifier of its own neighbourhood</strong>: its high-D k-nearest neighbours are the &ldquo;truth&rdquo;, its 2-D k-nearest neighbours are the &ldquo;prediction&rdquo;. <strong>Precision</strong> = fraction of the 2-D neighbours that are real (1&nbsp;&minus;&nbsp;precision = false-positive/intrusion rate); <strong>Recall</strong> = fraction of the real neighbours the projection kept (1&nbsp;&minus;&nbsp;recall = false-negative/extrusion rate); <strong>F1</strong> = their harmonic mean, in [0,1]. A <strong>low-F1 point cannot be trusted</strong>, its neighbourhood in the picture is wrong. Colour below is the per-point F1 (red = untrustworthy, green = faithful).</div>
           -->
-          <div class="trust-controls">
-            <div class="trust-ctl-group">
-              <span class="trust-ctl-label">Metric</span>
-              <span class="seg seg-sm" id="trustMetricSeg">
-                <button class="seg-btn active" data-tm="f1">neighbour F1</button>
-                <button class="seg-btn" data-tm="js_fidelity">JS fidelity</button>
-                <button class="seg-btn" data-tm="localstress">local stress</button>
-                <button class="seg-btn" data-tm="normstress">norm. stress</button>
-              </span>
-              <!-- 
-              <button class="info-btn" data-info="trustmetrics" title="What do these metrics mean?">i</button>
-              -->
-            </div>
-            <div class="trust-ctl-group">
-              <span class="trust-ctl-label">Colour by</span>
-              <span class="seg seg-sm" id="trustViewSeg">
-                <button class="seg-btn active" data-tv="score">score</button>
-                <button class="seg-btn" data-tv="class">classes</button>
-              </span>
-            </div>
-            <div class="trust-ctl-group">
-              <label class="check check-inline">
-                <!--
-                <input type="checkbox" id="classAware">
-                <span>Class-aware <span class="hint">use labels; show k-means</span></span>
-                -->
-              </label>
-              <!-- 
-                <button class="info-btn" data-info="classaware" title="What is class-aware?">i</button>
-              -->
-            </div>
-          </div>
-          <div class="classaware-info" id="classAwareInfo" hidden></div>
-          <div class="kmeans-box" id="trustKmeans" hidden></div>
-
-          <div class="filter-status" id="filterStatus" style="margin: 8px 0; padding: 8px 12px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; display: none; align-items: center; gap: 12px;">            <span class="filter-count" style="font-family: var(--mono); font-size: 13px; color: var(--ink);">
-              <strong id="filterCountNum">0</strong> points selected
-            </span>
-            <span class="filter-avg" style="font-size: 12px; color: var(--ink-dim);">
-              avg score: <span id="filterAvgScore">—</span>
-            </span>
-            <button class="ghost-btn ghost-btn-sm" id="filterStatusClear" style="margin-left: auto; width: auto;">Clear filters</button>
-          </div>
-
-          <div class="es-grid es-grid-rel">
-            <div class="plot es-plot" id="trustPca"></div>
-            <div class="plot es-plot" id="trustMds"></div>
-            <button class="ghost-btn ghost-btn-sm plot-clear-btn" id="trustPlotClear" hidden>Clear selection</button>
-          </div>
-          <div class="hover-readout" id="trustHover">Hover a point to see its scores in both projections; it is highlighted in the other plot too.</div>
-
-          <!-- shared selection table (brush either projection) -->
-          <div class="brush-detail" id="trustDetail">
-            <div class="brush-detail-head">
-              <span id="trustSelCount">No points selected: drag a box or lasso on either plot.</span>
-              <button class="ghost-btn ghost-btn-sm" id="trustSelClear" hidden>Clear selection</button>
-            </div>
-            <div class="table-wrap table-wrap-sm" id="trustSelWrap" hidden>
-              <table class="dtable" id="trustSelTable"><thead></thead><tbody></tbody></table>
-            </div>
-          </div>
-
-          <!-- box plots (left) next to filters (right) -->
-          <div class="trust-box-row">
-            <div class="trust-box-col">
-              <h4 data-info-title="boxplot" class="has-info">Distribution of per-point score</h4>
-              <div class="plot" id="trustBox" style="height:210px"></div>
-              <div class="trust-boxstats" id="trustBoxStats"></div>
-              <div class="outlier-table-wrap" id="trustOutlierWrap" hidden>
-                <div class="outlier-table-head">Outliers <span class="an-subtle" id="trustOutlierCount"></span></div>
-                <div class="table-wrap table-wrap-sm">
-                  <table class="dtable" id="trustOutlierTable"><thead></thead><tbody></tbody></table>
-                </div>
-              </div>
-            </div>
-            <div class="trust-filters trust-filters-col">
-              <div class="tf-head">
-                <span class="tf-title">Filters</span>
-                <button class="ghost-btn ghost-btn-sm" id="tfClear">Clear all</button>
-              </div>
-              <!--
-              <div class="tf-row">
-                <span class="tf-label">Boxplot counts</span>
-                <span class="seg seg-sm" id="brushModeSeg">
-                  <button class="seg-btn active" data-bm="within">selected only</button>
-                  <button class="seg-btn" data-bm="all">vs everyone</button>
+          <!-- STICKY PLOTS SECTION -->
+          <div class="trust-plots-sticky">
+            <div class="trust-controls">
+              <div class="trust-ctl-group">
+                <span class="trust-ctl-label">Metric</span>
+                <span class="seg seg-sm" id="trustMetricSeg">
+                  <button class="seg-btn active" data-tm="f1">neighbour F1</button>
+                  <button class="seg-btn" data-tm="js_fidelity">JS fidelity</button>
+                  <button class="seg-btn" data-tm="localstress">local stress</button>
+                  <button class="seg-btn" data-tm="normstress">norm. stress</button>
                 </span>
               </div>
-              -->
-              <div class="tf-row">
-                <span class="tf-label">By class</span>
-                <div class="tf-classes" id="tfClasses"></div>
+              <div class="trust-ctl-group">
+                <span class="trust-ctl-label">Colour by</span>
+                <span class="seg seg-sm" id="trustViewSeg">
+                  <button class="seg-btn active" data-tv="score">score</button>
+                  <button class="seg-btn" data-tv="class">classes</button>
+                </span>
               </div>
-              <div class="tf-row">
-                <span class="tf-label">By score <span class="hint" id="tfScoreMetric">(F1)</span></span>
-                <div class="tf-attr" id="tfScore"></div>
-              </div>
-              <div class="tf-row">
-                <span class="tf-label">By method disagreement</span>
-                <select id="tfDisagreement" class="inp inp-sm">
-                  <option value="">any</option>
-                  <option value="large">large disagreement (|PCA - MDS| > 0.2)</option>
-                  <option value="medium">medium disagreement (0.1 < |PCA - MDS| < 0.2)</option>
-                  <option value="small">small disagreement (|PCA - MDS| < 0.05)</option>
-                  <option value="pca_better">PCA better than MDS</option>
-                  <option value="mds_better">MDS better than PCA</option>
-                </select>
-              </div>
-              <div class="tf-row">
-                <span class="tf-label">By attribute window</span>
-                <div class="tf-attr" id="tfAttr"></div>
-              </div>
-              <p class="tf-note" id="tfNote"></p>
             </div>
+
+            <div class="es-grid es-grid-rel">
+              <div class="plot es-plot" id="trustPca"></div>
+              <div class="plot es-plot" id="trustMds"></div>
+              <button class="ghost-btn ghost-btn-sm plot-clear-btn" id="trustPlotClear" hidden>Clear selection</button>
+            </div>
+            <div class="hover-readout" id="trustHover">Hover a point to see its scores in both projections; it is highlighted in the other plot too.</div>
           </div>
 
-          <h4 data-info-title="metriccompare" class="has-info">Compare two metrics, where they disagree</h4>
-          <!--
-          <div class="panel-caption" style="margin-bottom:6px">Each point plotted by one fidelity metric (x) against another (y), for the chosen method. Points on the diagonal agree; points <strong>far off the diagonal are judged very differently by the two metrics</strong>. Pick which two metrics to compare below. Those off-diagonal points are the interesting, ambiguous ones.</div>
-          -->
-          <div class="trust-ctl-group" style="margin-bottom:6px; gap:14px; flex-wrap:wrap">
-            <span class="cmp-axis-pick"><span class="trust-ctl-label">X axis</span>
-              <select id="cmpXSel" class="inp inp-sm">
-                <option value="f1">neighbour F1</option>
-                <option value="js_fidelity">JS fidelity</option>
-                <option value="localstress">local stress</option>
-                <option value="normstress">norm. stress</option>
-              </select></span>
-            <span class="cmp-axis-pick"><span class="trust-ctl-label">Y axis</span>
-              <select id="cmpYSel" class="inp inp-sm">
-                <option value="f1">neighbour F1</option>
-                <option value="js_fidelity" selected>JS fidelity</option>
-                <option value="localstress">local stress</option>
-                <option value="normstress">norm. stress</option>
-              </select></span>
-            <span class="cmp-axis-pick"><span class="trust-ctl-label">Method</span>
-              <span class="seg seg-sm" id="cmpMethodSeg">
-                <button class="seg-btn active" data-cm="MDS">MDS</button>
-                <button class="seg-btn" data-cm="PCA">PCA</button>
-              </span></span>
-          </div>
-          <div class="plot" id="trustCompare" style="height:340px"></div>
-          <section class="flatpanel" data-panel="table">
-            <h3 class="panel-title" data-info-title="untrustworthy">Untrustworthy Points</h3>
-            <div class="panel-caption">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a statistical fence (Q1&nbsp;&minus;&nbsp;1.5&times;IQR) or a 0.3 floor. The table shows each point's consensus, its per-projection consensus, which projection it is untrustworthy in, and which metrics agree it is bad. <span id="tableMeta"></span></div>
-            <div class="table-wrap">
-              <table class="dtable" id="dtable">
-                <thead></thead>
-                <tbody></tbody>
-              </table>
+          <!-- SCROLLABLE CONTENT BELOW -->
+          <div class="trust-scroll-content">
+            <div class="filter-status" id="filterStatus" style="margin: 8px 0; padding: 8px 12px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; display: none; align-items: center; gap: 12px;">
+              <span class="filter-count" style="font-family: var(--mono); font-size: 13px; color: var(--ink);">
+                <strong id="filterCountNum">0</strong> points selected
+              </span>
+              <span class="filter-avg" style="font-size: 12px; color: var(--ink-dim);">
+                avg score: <span id="filterAvgScore">--</span>
+              </span>
+              <button class="ghost-btn ghost-btn-sm" id="filterStatusClear" style="margin-left: auto; width: auto;">Clear filters</button>
             </div>
+
+            <!-- shared selection table (brush either projection) -->
+            <div class="brush-detail" id="trustDetail">
+              <div class="brush-detail-head">
+                <span id="trustSelCount">No points selected: drag a box or lasso on either plot.</span>
+                <button class="ghost-btn ghost-btn-sm" id="trustSelClear" hidden>Clear selection</button>
+              </div>
+              <div class="table-wrap table-wrap-sm" id="trustSelWrap" hidden>
+                <table class="dtable" id="trustSelTable"><thead></thead><tbody></tbody></table>
+              </div>
+            </div>
+
+            <!-- box plots (left) next to filters (right) -->
+            <div class="trust-box-row">
+              <div class="trust-box-col">
+                <h4 data-info-title="boxplot" class="has-info">Distribution of per-point score</h4>
+                <div class="plot" id="trustBox" style="height:210px"></div>
+                <div class="trust-boxstats" id="trustBoxStats"></div>
+                <div class="outlier-table-wrap" id="trustOutlierWrap" hidden>
+                  <div class="outlier-table-head">Outliers <span class="an-subtle" id="trustOutlierCount"></span></div>
+                  <div class="table-wrap table-wrap-sm">
+                    <table class="dtable" id="trustOutlierTable"><thead></thead><tbody></tbody></table>
+                  </div>
+                </div>
+              </div>
+              <div class="trust-filters trust-filters-col">
+                <div class="tf-head">
+                  <span class="tf-title">Filters</span>
+                  <button class="ghost-btn ghost-btn-sm" id="tfClear">Clear all</button>
+                </div>
+                <div class="tf-row">
+                  <span class="tf-label">By class</span>
+                  <div class="tf-classes" id="tfClasses"></div>
+                </div>
+                <div class="tf-row">
+                  <span class="tf-label">By score <span class="hint" id="tfScoreMetric">(F1)</span></span>
+                  <div class="tf-attr" id="tfScore"></div>
+                </div>
+                <div class="tf-row">
+                  <span class="tf-label">By method disagreement</span>
+                  <select id="tfDisagreement" class="inp inp-sm">
+                    <option value="">any</option>
+                    <option value="large">large disagreement (|PCA - MDS| > 0.2)</option>
+                    <option value="medium">medium disagreement (0.1 < |PCA - MDS| < 0.2)</option>
+                    <option value="small">small disagreement (|PCA - MDS| < 0.05)</option>
+                    <option value="pca_better">PCA better than MDS</option>
+                    <option value="mds_better">MDS better than PCA</option>
+                  </select>
+                </div>
+                <div class="tf-row">
+                  <span class="tf-label">By attribute window</span>
+                  <div class="tf-attr" id="tfAttr"></div>
+                </div>
+                <p class="tf-note" id="tfNote"></p>
+              </div>
+            </div>
+
+            <h4 data-info-title="metriccompare" class="has-info">Compare two metrics, where they disagree</h4>
+            <div class="trust-ctl-group" style="margin-bottom:6px; gap:14px; flex-wrap:wrap">
+              <span class="cmp-axis-pick"><span class="trust-ctl-label">X axis</span>
+                <select id="cmpXSel" class="inp inp-sm">
+                  <option value="f1">neighbour F1</option>
+                  <option value="js_fidelity">JS fidelity</option>
+                  <option value="localstress">local stress</option>
+                  <option value="normstress">norm. stress</option>
+                </select></span>
+              <span class="cmp-axis-pick"><span class="trust-ctl-label">Y axis</span>
+                <select id="cmpYSel" class="inp inp-sm">
+                  <option value="f1">neighbour F1</option>
+                  <option value="js_fidelity" selected>JS fidelity</option>
+                  <option value="localstress">local stress</option>
+                  <option value="normstress">norm. stress</option>
+                </select></span>
+              <span class="cmp-axis-pick"><span class="trust-ctl-label">Method</span>
+                <span class="seg seg-sm" id="cmpMethodSeg">
+                  <button class="seg-btn active" data-cm="MDS">MDS</button>
+                  <button class="seg-btn" data-cm="PCA">PCA</button>
+                </span></span>
+            </div>
+            <div class="plot" id="trustCompare" style="height:340px"></div>
+            
+            <section class="flatpanel" data-panel="table" style="padding: 18px 0 0 0; border-bottom: none;">
+              <h3 class="panel-title" data-info-title="untrustworthy">Untrustworthy Points</h3>
+              <div class="panel-caption">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a statistical fence (Q1&nbsp;&minus;&nbsp;1.5&times;IQR) or a 0.3 floor. The table shows each point's consensus, its per-projection consensus, which projection it is untrustworthy in, and which metrics agree it is bad. <span id="tableMeta"></span></div>
+              <div class="table-wrap">
+                <table class="dtable" id="dtable">
+                  <thead></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
           </section>
         </section>
 
@@ -479,7 +460,6 @@
 
            <!-- ADJUSTED-DISTANCE COMPARISON: always shown -->
 
-          <!--
           <div class="an-card wmds-compare" id="wmdsCompare">
             <div class="wmds-head">
               <span class="wmds-title" data-info-title="adjdist">Plain vs adjusted MDS</span>
@@ -501,7 +481,7 @@
                 <table class="dtable" id="wmdsSelTable"><thead></thead><tbody></tbody></table>
               </div>
             </div>
-          -->
+          
           </div>
         </section>
 

@@ -98,10 +98,10 @@ async function init(){
 const METRIC_INFO = {
   neighborf1: { title: 'Neighbourhood-preservation F1',
     body: `<p><strong>What it is.</strong> A per-point score of how well the projection preserved that point's neighbourhood. Each point is treated as a <em>classifier of its own neighbourhood</em>: its <em>k</em> nearest neighbours in the high-dimensional space are the ground-truth set (the neighbours that <em>should</em> be kept), and its <em>k</em> nearest neighbours in the 2-D projection are the prediction (the neighbours the projection actually placed nearby).</p>
-    <p><strong>Precision</strong> = |2-D neighbours &cap; high-D neighbours| / |2-D neighbours|,; of the neighbours the projection asserts, how many are real. (1 &minus; precision is the false-positive / intrusion rate.)<br>
-    <strong>Recall</strong> = |2-D &cap; high-D| / |high-D neighbours|,; of the real neighbours, how many the projection kept. (1 &minus; recall is the false-negative / extrusion rate.)<br>
+    <p><strong>Precision</strong> = |2-D neighbours &cap; high-D neighbours| / |2-D neighbours|, of the neighbours the projection asserts, how many are real. (1 &minus; precision is the false-positive / intrusion rate.)<br>
+    <strong>Recall</strong> = |2-D &cap; high-D| / |high-D neighbours|, of the real neighbours, how many the projection kept. (1 &minus; recall is the false-negative / extrusion rate.)<br>
     <strong>F1</strong> = 2&middot;precision&middot;recall / (precision + recall), in [0, 1].</p>
-    <p><strong>What it's useful for.</strong> It answers directly &ldquo;which points can I not trust?&rdquo;,; a low-F1 point has a wrong neighbourhood in the picture, so any structure you read around it is unreliable. Because it is per-point, you can colour the projections by it and see exactly <em>where</em> the projection fails.</p>
+    <p><strong>What it's useful for.</strong> It answers directly &ldquo;which points can I not trust?&rdquo;, a low-F1 point has a wrong neighbourhood in the picture, so any structure you read around it is unreliable. Because it is per-point, you can colour the projections by it and see exactly <em>where</em> the projection fails.</p>
     <p><strong>How it works.</strong> With a symmetric fixed <em>k</em>, both neighbour sets have size <em>k</em>, so precision = recall = F1 for every point; the three diverge only under adaptive per-point <em>k</em> (then a point's high-D and 2-D neighbourhoods can differ in size). This is a set-overlap metric, distinct from the signed intrusion/extrusion error elsewhere in the tool, which is rank-weighted and directional.</p>` },
   trustmetrics: { title: 'The four per-point trust metrics',
     body: `<p>All four are per-point, in [0, 1], higher = more trustworthy. They measure the same idea, did the projection preserve this point's neighbourhood?, in different ways, so a point can score well on one and badly on another.</p>
@@ -111,11 +111,11 @@ const METRIC_INFO = {
     <p><strong>MRRE (Mean Relative Rank Error), as a fidelity.</strong> Penalises how far each of the point's high-D neighbours moved in the 2-D rank ordering, weighted so closer neighbours matter more. Reported as 1 &minus; normalised MRRE. A smoother, rank-based cousin of trustworthiness/continuity.</p>
     <p>Because they emphasise different things (set membership vs. relative distance vs. whole ordering), comparing them, as in the F1-vs-JS scatter, reveals points that are ambiguous, i.e. trustworthy by one criterion but not another.</p>` },
   jsdivergence: { title: 'Jensen-Shannon fidelity (alternative to F1)',
-    body: `<p><strong>What it is.</strong> An alternative per-point fidelity based on <em>soft</em> neighbourhoods rather than a hard k cut-off. Following the t-SNE idea, each point's neighbours are given a probability from a Gaussian over distances,; in high-D (distribution <em>P</em>) and in 2-D (distribution <em>Q</em>). The <strong>Jensen-Shannon divergence</strong> JS(P&#8214;Q) &isin; [0, 1] (log base 2) measures how differently the projection distributes that point's neighbour-affinity: 0 = identical, 1 = maximally different. We report <strong>JS fidelity = 1 &minus; JS</strong> so that, like F1, higher is better.</p>
-    <p><strong>Why a second metric.</strong> F1 uses a binary threshold (in or out of the top <em>k</em>); JS is continuous and weights near neighbours more than far ones, so it is sensitive to whether the projection preserved the <em>relative</em> closeness of neighbours, not just the membership of the top-<em>k</em> set. A point can score high on one and low on the other,; the &ldquo;F1 vs JS&rdquo; chart surfaces exactly those disagreements.</p>
+    body: `<p><strong>What it is.</strong> An alternative per-point fidelity based on <em>soft</em> neighbourhoods rather than a hard k cut-off. Following the t-SNE idea, each point's neighbours are given a probability from a Gaussian over distances, in high-D (distribution <em>P</em>) and in 2-D (distribution <em>Q</em>). The <strong>Jensen-Shannon divergence</strong> JS(P&#8214;Q) &isin; [0, 1] (log base 2) measures how differently the projection distributes that point's neighbour-affinity: 0 = identical, 1 = maximally different. We report <strong>JS fidelity = 1 &minus; JS</strong> so that, like F1, higher is better.</p>
+    <p><strong>Why a second metric.</strong> F1 uses a binary threshold (in or out of the top <em>k</em>); JS is continuous and weights near neighbours more than far ones, so it is sensitive to whether the projection preserved the <em>relative</em> closeness of neighbours, not just the membership of the top-<em>k</em> set. A point can score high on one and low on the other, the &ldquo;F1 vs JS&rdquo; chart surfaces exactly those disagreements.</p>
     <p><strong>How it works.</strong> JS = &frac12;KL(P&#8214;M) + &frac12;KL(Q&#8214;M) where M = &frac12;(P+Q); the per-point Gaussian bandwidth is the distance to the <em>k</em>-th neighbour, so softness scales with local density. It is symmetric and bounded, unlike raw KL divergence.</p>` },
   boxplot: { title: 'Per-point score box plots',
-    body: `<p><strong>What it is.</strong> Two box plots,; one for PCA, one for MDS,; of the distribution of the per-point score (F1 or JS fidelity) across all points. Each box shows the <strong>median</strong> (centre line), the <strong>interquartile range</strong> (25th&ndash;75th percentile, the box), the <strong>whiskers</strong> (1.5&times;IQR), and <strong>outliers</strong> as individual dots; the <strong>mean</strong> is marked separately. Exact values appear beneath and on hover.</p>
+    body: `<p><strong>What it is.</strong> Two box plots, one for PCA, one for MDS, of the distribution of the per-point score (F1 or JS fidelity) across all points. Each box shows the <strong>median</strong> (centre line), the <strong>interquartile range</strong> (25th&ndash;75th percentile, the box), the <strong>whiskers</strong> (1.5&times;IQR), and <strong>outliers</strong> as individual dots; the <strong>mean</strong> is marked separately. Exact values appear beneath and on hover.</p>
     <p><strong>What it's useful for.</strong> It compares the two projections as <em>distributions</em>, not single numbers: a higher median box means the method preserves more neighbourhoods; a long lower whisker or many low outliers means a method is faithful for most points but badly wrong for a few. This is the aggregated, distribution-level companion to the per-point colouring.</p>
     <p><strong>Dynamic with brushing/filters.</strong> When you select a subset (by brushing the projections, or by class / attribute filters), the boxes recompute over just that subset, so you can see how trustworthiness varies across regions or classes. The &ldquo;selected only / vs everyone&rdquo; switch controls whether the score is recomputed using only the selected points as candidate neighbours, or kept as the original score computed against all points.</p>` },
   metriccompare: { title: 'F1 vs JS fidelity comparison',
@@ -160,9 +160,9 @@ const METRIC_INFO = {
     <p>The two can disagree sharply, a point can be geometrically distorted but class-faithful (its neighbourhood was reshuffled only within its own class), or vice versa.</p>
     <p><strong>Why k-means appears.</strong> Class-aware scores only make sense if the labels actually correspond to the data's clusters. So when class-aware is on, the k-means ground-truth check is shown: it clusters the data with no labels and reports whether those clusters match the classes (ARI, matched accuracy) and whether each projection preserves the clustering. A low agreement means a poor class-aware score reflects a labelling/geometry mismatch, not the projection's fault.</p>` },
   mahalanobis: { title: 'Mahalanobis metric learning',
-    body: `<p><strong>What it is.</strong> An MDS layout built from the <em>Mahalanobis</em> distance instead of the plain Euclidean distance. The Mahalanobis distance is d(a,b) = &radic;((a&minus;b)&#7488; &Sigma;&#8315;&sup1; (a&minus;b)), where &Sigma; is the data covariance,; equivalent to whitening the space (rotating and rescaling by the inverse covariance) and then measuring ordinary distance.</p>
-    <p><strong>What it's useful for.</strong> Plain Euclidean distance lets high-variance and correlated directions dominate, so the layout can be driven by a few dominant or redundant features. Mahalanobis puts every direction on equal footing, which is the classical &ldquo;adjusted distance&rdquo; of unsupervised metric learning. Crucially it is <strong>label-free</strong>,; it uses no class labels, only the data's own covariance,; so any improvement is a property of the geometry, not of the labels.</p>
-    <p><strong>How it works and; how we verify it.</strong> Only the MDS panel uses the adjusted distance; PCA and the per-point trust scores stay on the true (unwhitened) Euclidean geometry, so they remain an honest reference. The comparison panel puts the plain and Mahalanobis layouts side by side and,; the important part,; reports the neighbourhood-F1 and the false-positive (intrusion) and false-negative (extrusion) rates of each. That lets you check whether the adjusted distance genuinely reduces distortion. It does not always: whitening amplifies low-variance directions, which on some data are noise, so the tool measures the effect rather than assuming it.</p>` },
+    body: `<p><strong>What it is.</strong> An MDS layout built from the <em>Mahalanobis</em> distance instead of the plain Euclidean distance. The Mahalanobis distance is d(a,b) = &radic;((a&minus;b)&#7488; &Sigma;&#8315;&sup1; (a&minus;b)), where &Sigma; is the data covariance, equivalent to whitening the space (rotating and rescaling by the inverse covariance) and then measuring ordinary distance.</p>
+    <p><strong>What it's useful for.</strong> Plain Euclidean distance lets high-variance and correlated directions dominate, so the layout can be driven by a few dominant or redundant features. Mahalanobis puts every direction on equal footing, which is the classical &ldquo;adjusted distance&rdquo; of unsupervised metric learning. Crucially it is <strong>label-free</strong>, it uses no class labels, only the data's own covariance, so any improvement is a property of the geometry, not of the labels.</p>
+    <p><strong>How it works and; how we verify it.</strong> Only the MDS panel uses the adjusted distance; PCA and the per-point trust scores stay on the true (unwhitened) Euclidean geometry, so they remain an honest reference. The comparison panel puts the plain and Mahalanobis layouts side by side and, the important part, reports the neighbourhood-F1 and the false-positive (intrusion) and false-negative (extrusion) rates of each. That lets you check whether the adjusted distance genuinely reduces distortion. It does not always: whitening amplifies low-variance directions, which on some data are noise, so the tool measures the effect rather than assuming it.</p>` },
   weightedmds: { title: 'Weighted MDS',
     body: `<p><strong>What it is.</strong> An MDS layout in which each feature is scaled by its mutual information with the class label before distances are computed.</p>
     <p><strong>What it's useful for.</strong> Ordinary MDS lets noisy or redundant features dominate the geometry as much as informative ones. Weighting is a controlled experiment: "what would the layout look like if the class-informative measurements counted more?" It is most useful on data with many irrelevant features.</p>
@@ -1279,13 +1279,13 @@ function renderWmdsCompare(d){
     if(ro){
       const dx=weightXY.x[i]-plainXY.x[i], dy=weightXY.y[i]-plainXY.y[i];
       const move=Math.hypot(dx,dy);
-      const metricCells=(mth)=>METRIC_KEYS.map(k=>`${METRIC_LABELS[k]||k} <strong>${nmr[mth][k][i].toFixed(3)}</strong>`).join(', ');
+      const metricCells=(mth)=>METRIC_KEYS.map(k=>`${METRIC_LABELS[k]||k} <strong style="font-size:15px">${nmr[mth][k][i].toFixed(3)}</strong>`).join(', ');
       const kUsed = (nmr.MDS.k_used && nmr.MDS.k_used[i]!=null) ? nmr.MDS.k_used[i] : null;
       ro.innerHTML =
-        `<span class="hr-idx">idx ${tt.ids[i]}</span> <span class="class-chip" style="background:${classColor(tt.labels[i])}"></span>${tt.class_names[i]}, moved <strong>${move.toFixed(2)}</strong> plain→adjusted`+
-        (kUsed!=null ? ` <span class="hr-k">k = ${kUsed}</span>` : '')+
-        `<span class="hr-row"><span class="hr-m">PCA</span> ${metricCells('PCA')}</span>`+
-        `<span class="hr-row"><span class="hr-m">MDS</span> ${metricCells('MDS')}</span>`;
+        `<span class="hr-idx" style="font-size:15px">idx ${tt.ids[i]}</span> <span class="class-chip" style="background:${classColor(tt.labels[i])}"></span>${tt.class_names[i]}, moved <strong>${move.toFixed(2)}</strong> plain→adjusted`+
+        (kUsed!=null ? ` <span class="hr-k" style="font-size:15px">k = ${kUsed}</span>` : '')+
+        `<span class="hr-row"><span class="hr-m" style="font-size:15px">PCA</span> ${metricCells('PCA')}</span>`+
+        `<span class="hr-row"><span class="hr-m" style="font-size:15px">MDS</span> ${metricCells('MDS')}</span>`;
     }
   };
   const onUnhover = ()=>{ wmdsHoverRing(0, false); if(state.result){ /* restore selection rings */ applyWmdsSel(state._wmdsSel||new Set()); }
@@ -1485,10 +1485,10 @@ function updateEsQuadCounts(d){
   const nzBtnEl=document.querySelector('#esQuadrants .es-quad-nearzero');
   if(nzBtn){
     if(nearZeroLarge>0){
-      nzBtn.innerHTML = `<strong style="color:#e0a54b">${nearZeroLarge} are large</strong>,; distorted, not faithful`;
+      nzBtn.innerHTML = `<strong style="color:#e0a54b">${nearZeroLarge} are large</strong>, distorted, not faithful`;
       if(nzBtnEl) nzBtnEl.classList.add('es-quad-warn');
     } else {
-      nzBtn.innerHTML = `all small,; genuinely faithful`;
+      nzBtn.innerHTML = `all small, genuinely faithful`;
       if(nzBtnEl) nzBtnEl.classList.remove('es-quad-warn');
     }
   }
@@ -1992,7 +1992,7 @@ function updateFilterStatus(d) {
     }
   });
   const avg = count > 0 ? sum / count : 0;
-  avgEl.textContent = avg > 0 ? avg.toFixed(3) : '—';
+  avgEl.textContent = avg > 0 ? avg.toFixed(3) : '--';
   
   // Clear button
   const clearBtn = document.getElementById('filterStatusClear');
@@ -2155,7 +2155,7 @@ function renderOutlierTable(d, idxArr, sp, sm, key, mlabel){
   });
   if(!rows.length){ wrap.hidden=true; return; }
   wrap.hidden=false;
-  const cnt=$('trustOutlierCount'); if(cnt) cnt.textContent=`(${rows.length}) · metric: ${mlabel}`;
+  const cnt=$('trustOutlierCount'); if(cnt) cnt.textContent=`(${rows.length}) metric: ${mlabel}`;
   // sortable
   const stt=state.outlierSort;
   rows.sort((a,b)=>{
@@ -2464,15 +2464,15 @@ const CRITERION_INFO = {
   fidelity: { title: 'Fidelity criterion',
     body: `<p><strong>What it is.</strong> The per-point neighbourhood-preservation error averaged over all points, turned into a 0&ndash;1 score (higher = better). It is the toolkit's own intrusion/extrusion metric: for each point it counts how many of its true high-D neighbours the projection keeps and how many strangers it wrongly pulls in.</p>
     <p><strong>How it's calculated.</strong> Per point, FP = rank-weighted intrusions (points close in 2-D but far in high-D) and FN = rank-weighted extrusions (true neighbours pushed away); the score is 1 &minus; mean(|FP| + |FN|). It is the only <em>per-point</em> component, which is why it usually carries the most weight by default.</p>
-    <p><strong>Why it is indicative.</strong> It directly measures the thing the projection is supposed to do,; preserve local neighbourhoods,; so a method that scores high here distorts fewer points.</p>` },
+    <p><strong>Why it is indicative.</strong> It directly measures the thing the projection is supposed to do, preserve local neighbourhoods, so a method that scores high here distorts fewer points.</p>` },
   neighbourhood: { title: 'Neighbourhood criterion',
-    body: `<p><strong>What it is.</strong> How well the projection preserves each point's <em>local neighbourhood</em>, in both directions at once. It consolidates the two classical measures &mdash; trustworthiness and continuity (Venna and; Kaski) &mdash; into a single score by averaging them. In [0, 1], higher = better.</p>
+    body: `<p><strong>What it is.</strong> How well the projection preserves each point's <em>local neighbourhood</em>, in both directions at once. It consolidates the two classical measures, trustworthiness and continuity (Venna and; Kaski), into a single score by averaging them. In [0, 1], higher = better.</p>
     <p><strong>How it's calculated.</strong> <em>Trustworthiness</em> penalises <em>false neighbours</em> (points close in 2-D but far in high-D); <em>continuity</em> penalises <em>missing neighbours</em> (points close in high-D but pushed apart in 2-D). Each sums the rank displacements of the offending neighbours, normalised so 1 is perfect; the component is their mean.</p>
-    <p><strong>Why it is indicative.</strong> It answers &ldquo;can I trust that points shown close together really are close, and that close things stayed together?&rdquo; &mdash; the credibility and completeness of the projection's neighbourhoods in one number.</p>` },
+    <p><strong>Why it is indicative.</strong> It answers &ldquo;can I trust that points shown close together really are close, and that close things stayed together?&rdquo;, the credibility and completeness of the projection's neighbourhoods in one number.</p>` },
   shepard: { title: 'Shepard criterion (global distance preservation)',
     body: `<p><strong>What it is.</strong> How well the projection preserves <em>all</em> pairwise distances, not just neighbourhoods. In [0, 1], higher = the 2-D distances track the high-D distances across the whole dataset.</p>
-    <p><strong>How it's calculated.</strong> The Pearson correlation between every pair's high-D distance and its 2-D distance &mdash; the numerical version of the classical Shepard diagram (a scatter of high-D vs 2-D distances). Clamped to [0, 1].</p>
-    <p><strong>Why it is indicative.</strong> The neighbourhood criterion only checks local structure; this one checks the <em>global</em> geometry &mdash; whether far-apart clusters are shown far apart and the overall shape is preserved. A projection can have good neighbourhoods but a distorted global layout, and this catches that.</p>` },
+    <p><strong>How it's calculated.</strong> The Pearson correlation between every pair's high-D distance and its 2-D distance, the numerical version of the classical Shepard diagram (a scatter of high-D vs 2-D distances). Clamped to [0, 1].</p>
+    <p><strong>Why it is indicative.</strong> The neighbourhood criterion only checks local structure; this one checks the <em>global</em> geometry, whether far-apart clusters are shown far apart and the overall shape is preserved. A projection can have good neighbourhoods but a distorted global layout, and this catches that.</p>` },
   cluster: { title: 'Cluster-preservation criterion',
     body: `<p><strong>What it is.</strong> How well the projection preserves the data's cluster structure, measured label-free. In [0, 1], higher = the 2-D grouping matches the high-D grouping.</p>
     <p><strong>How it's calculated.</strong> k-means is run in the high-D space and in the 2-D projection, and the two partitions are compared with the Adjusted Rand Index (ARI), which is corrected for chance. No class labels are used, so it is a purely structural comparison.</p>
@@ -2706,14 +2706,14 @@ function renderMetricsCard(d){
     const macroF1 = g.f1!=null?g.f1:g.f_score, microF1 = gm.f1!=null?gm.f1:gm.f_score;
     const gap = Math.abs(macroF1 - microF1);
     const gapNote = gap>0.05
-      ? `Because they differ by ${gap.toFixed(3)}, the classes are <strong>imbalanced or uneven</strong>,; some classes score much better than others, and the small classes are pulling the macro score ${macroF1<microF1?'down':'up'}.`
-      : `They are close (gap ${gap.toFixed(3)}), so every class scores about equally well,; the overall F1 is representative of each class.`;
+      ? `Because they differ by ${gap.toFixed(3)}, the classes are <strong>imbalanced or uneven</strong>, some classes score much better than others, and the small classes are pulling the macro score ${macroF1<microF1?'down':'up'}.`
+      : `They are close (gap ${gap.toFixed(3)}), so every class scores about equally well, the overall F1 is representative of each class.`;
     grid.insertAdjacentHTML('afterend',
       `<div class="an-note macro-micro" id="anMacroMicro">`+
       `<div class="mm-row"><span class="mm-tag mm-macro">MACRO F1 ${macroF1.toFixed(3)}</span>`+
-      `<span class="mm-desc">treats every <em>class</em> equally: average the F1 within each class, then average those,; so a tiny class counts as much as a huge one.</span></div>`+
+      `<span class="mm-desc">treats every <em>class</em> equally: average the F1 within each class, then average those, so a tiny class counts as much as a huge one.</span></div>`+
       `<div class="mm-row"><span class="mm-tag mm-micro">MICRO F1 ${microF1.toFixed(3)}</span>`+
-      `<span class="mm-desc">treats every <em>point</em> equally: pool all points together,; so large classes dominate.</span></div>`+
+      `<span class="mm-desc">treats every <em>point</em> equally: pool all points together, so large classes dominate.</span></div>`+
       `<div class="mm-gap">${gapNote}</div>`+
       `</div>`);
   }
@@ -2812,7 +2812,7 @@ function renderKmeansCard(d){
     }
     html += `. Part of any apparent "projection error" may therefore be a label/geometry mismatch, not the projection's fault.</p>`;
     if(method === 'kmeans'){
-      html += `<p class="an-note">If the classes might be <em>non-convex</em> (e.g. rings or crescents), k-means cannot see them,; try the <strong>spectral</strong> clusterer in the Analysis controls before concluding the labels are bad.</p>`;
+      html += `<p class="an-note">If the classes might be <em>non-convex</em> (e.g. rings or crescents), k-means cannot see them, try the <strong>spectral</strong> clusterer in the Analysis controls before concluding the labels are bad.</p>`;
     }
   }
   // per-method preservation

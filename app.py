@@ -476,7 +476,7 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                         "pca_consensus": round(pca_c, 3),
                         "mds_consensus": round(mds_c, 3),
                         "which": which,
-                        "agree": ", ".join(agree) if agree else "—",
+                        "agree": ", ".join(agree) if agree else "--",
                         "pca_f1": round(float(neighbor_metrics["PCA"]["f1"][i]), 3),
                         "mds_f1": round(float(neighbor_metrics["MDS"]["f1"][i]), 3),
                     })
