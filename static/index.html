@@ -276,14 +276,20 @@
 
           <!-- SCROLLABLE CONTENT BELOW -->
           <div class="trust-scroll-content">
-            <div class="filter-status" id="filterStatus" style="margin: 8px 0; padding: 8px 12px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; display: none; align-items: center; gap: 12px;">
-              <span class="filter-count" style="font-family: var(--mono); font-size: 13px; color: var(--ink);">
-                <strong id="filterCountNum">0</strong> points selected
+            <!-- Filter status - ALWAYS VISIBLE -->
+            <div class="filter-status" id="filterStatus" style="margin: 8px 0; padding: 8px 16px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: 8px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+              <span class="filter-count" style="font-family: var(--mono); font-size: 16px; color: var(--ink);">
+                <strong id="filterCountNum">All</strong> points
               </span>
-              <span class="filter-avg" style="font-size: 12px; color: var(--ink-dim);">
-                avg score: <span id="filterAvgScore">--</span>
+              <span class="filter-avg-pca" style="font-size: 16px; color: #82abd8;">
+                PCA avg.score: <strong id="filterAvgPca">0.000</strong>
               </span>
-              <button class="ghost-btn ghost-btn-sm" id="filterStatusClear" style="margin-left: auto; width: auto;">Clear filters</button>
+              <span class="filter-divider" style="color: var(--ink-faint); opacity: 0.4;">|</span>
+              <span class="filter-avg-mds" style="font-size: 16px; color: #e0a54b;">
+                MDS avg.score: <strong id="filterAvgMds">0.000</strong>
+              </span>
+              <span class="filter-metric" style="font-size: 16px; color: var(--ink); margin-left: 4px;" id="filterMetricLabel">(F1)</span>
+              <button class="ghost-btn ghost-btn-sm" id="filterStatusClear" style="margin-left: auto; width: auto; display: none;">Clear filters</button>
             </div>
 
             <!-- shared selection table (brush either projection) -->
@@ -301,7 +307,7 @@
             <div class="trust-box-row">
               <div class="trust-box-col">
                 <h4 data-info-title="boxplot" class="has-info">Distribution of per-point score</h4>
-                <div class="plot" id="trustBox" style="height:210px"></div>
+                <div class="plot" id="trustBox" style="height:100px"></div>
                 <div class="trust-boxstats" id="trustBoxStats"></div>
                 <div class="outlier-table-wrap" id="trustOutlierWrap" hidden>
                   <div class="outlier-table-head">Outliers <span class="an-subtle" id="trustOutlierCount"></span></div>

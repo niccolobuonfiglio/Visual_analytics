@@ -1615,3 +1615,72 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
   padding: 8px;
   border: 1px solid var(--line);
 }
+
+/* Filter status - always visible */
+.filter-status {
+  display: flex !important;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  margin: 8px 0;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-status .filter-count {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.filter-status .filter-count strong {
+  color: var(--live);
+}
+
+.filter-status .filter-avg-pca {
+  font-size: 14px;
+  color: #82abd8;
+}
+
+.filter-status .filter-avg-pca strong {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.filter-status .filter-avg-mds {
+  font-size: 14px;
+  color: #e0a54b;
+}
+
+.filter-status .filter-avg-mds strong {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.filter-status .filter-divider {
+  color: var(--ink-faint);
+  opacity: 0.3;
+}
+
+.filter-status .filter-metric {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.filter-status .filter-status-clear {
+  margin-left: auto;
+  width: auto;
+  display: none;
+}
+
+.filter-status.has-filters .filter-status-clear {
+  display: inline-block;
+}
+
+.filter-status.has-filters .filter-count strong {
+  color: var(--live);
+}

@@ -1577,7 +1577,7 @@ function renderVerdictBanner(d){
     banner.classList.add('vb-soft');
     badge.textContent = p.winner;
     headline.innerHTML = `<strong>${p.winner}</strong> leads, but not decisively`;
-    sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}), the confidence interval straddles zero, so treat as provisional`;
+    sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}), the confidence interval is small, not extremely indicative`;
   }
 }
 
@@ -1964,39 +1964,65 @@ function applyWmdsPin(){
 function updateFilterStatus(d) {
   const status = document.getElementById('filterStatus');
   const countEl = document.getElementById('filterCountNum');
-  const avgEl = document.getElementById('filterAvgScore');
+  const pcaAvgEl = document.getElementById('filterAvgPca');
+  const mdsAvgEl = document.getElementById('filterAvgMds');
+  const metricLabel = document.getElementById('filterMetricLabel');
+  const clearBtn = document.getElementById('filterStatusClear');
   
-  if (!status || !countEl || !avgEl) return;
+  if (!status || !countEl || !pcaAvgEl || !mdsAvgEl) return;
   
+  const nm = d.neighbor_metrics;
+  const key = state.trustMetric;
   const active = trustActiveSet(d);
   const total = d.table.ids.length;
   const filtering = active.size !== total;
   
-  if (!filtering || active.size === 0) {
-    status.style.display = 'none';
-    return;
+  // Update metric label
+  if (metricLabel) {
+    metricLabel.textContent = `(${METRIC_LABELS[key] || key})`;
   }
   
-  status.style.display = 'flex';
-  countEl.textContent = active.size;
+  // Calculate averages for PCA and MDS
+  const pcaScores = nm.PCA[key];
+  const mdsScores = nm.MDS[key];
   
-  // Calculate average score for filtered points
-  const nm = d.neighbor_metrics;
-  const key = state.trustMetric;
-  let sum = 0;
-  let count = 0;
-  active.forEach(i => {
-    if (nm.PCA[key] && nm.PCA[key][i] !== undefined) {
-      sum += nm.PCA[key][i] + nm.MDS[key][i];
-      count += 2;
-    }
-  });
-  const avg = count > 0 ? sum / count : 0;
-  avgEl.textContent = avg > 0 ? avg.toFixed(3) : '--';
+  let pcaAvg, mdsAvg;
+  if (filtering && active.size > 0) {
+    const activeArr = [...active];
+    let pcaSum = 0, mdsSum = 0;
+    activeArr.forEach(i => {
+      pcaSum += pcaScores[i];
+      mdsSum += mdsScores[i];
+    });
+    pcaAvg = pcaSum / activeArr.length;
+    mdsAvg = mdsSum / activeArr.length;
+    countEl.textContent = active.size;
+  } else if (filtering && active.size === 0) {
+    pcaAvg = 0;
+    mdsAvg = 0;
+    countEl.textContent = 'No';
+  } else {
+    pcaAvg = pcaScores.reduce((a,b) => a + b, 0) / pcaScores.length;
+    mdsAvg = mdsScores.reduce((a,b) => a + b, 0) / mdsScores.length;
+    countEl.textContent = 'All';
+  }
   
-  // Clear button
-  const clearBtn = document.getElementById('filterStatusClear');
-  if (clearBtn) {
+  // Update the display
+  pcaAvgEl.textContent = pcaAvg.toFixed(3);
+  mdsAvgEl.textContent = mdsAvg.toFixed(3);
+  
+  // Show/hide clear button and add class
+  if (filtering) {
+    status.classList.add('has-filters');
+    if (clearBtn) clearBtn.style.display = 'inline-block';
+  } else {
+    status.classList.remove('has-filters');
+    if (clearBtn) clearBtn.style.display = 'none';
+  }
+  
+  // Clear button handler
+  if (clearBtn && !clearBtn.dataset.wired) {
+    clearBtn.dataset.wired = '1';
     clearBtn.onclick = function() {
       state.filterClasses.clear();
       state.attrFilter = null;
