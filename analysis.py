@@ -559,6 +559,34 @@ def _trustworthiness_continuity(D_high: NDArray[np.float64],
     return 1.0 - norm * t_pen, 1.0 - norm * c_pen
 
 
+def _find_best_k_for_clustering(X: NDArray[np.float64], k_range: tuple[int, int] = (2, 15)) -> int:
+    """Find k that maximizes silhouette score for k-means clustering.
+    
+    This is used to determine the natural number of clusters in the data,
+    rather than relying on the number of class labels. Returns the best k
+    found, or the middle of the range if silhouette fails.
+    """
+    n = X.shape[0]
+    lo, hi = k_range
+    hi = min(hi, n - 1)
+    best_k = min(3, hi)  # fallback
+    best_score = -1
+    
+    for k in range(max(2, lo), hi + 1):
+        try:
+            km = KMeans(n_clusters=k, n_init=10, random_state=RANDOM_STATE)
+            labels = km.fit_predict(X)
+            if len(np.unique(labels)) > 1:
+                score = silhouette_score(X, labels)
+                if score > best_score:
+                    best_score = score
+                    best_k = k
+        except Exception:
+            continue
+    
+    return best_k
+
+
 def compare_methods(X_high: NDArray[np.float64], projections: dict,
                     errs: dict, fps: dict, fns: dict,
                     labels: Sequence[int], k: int = 10,
@@ -575,11 +603,14 @@ def compare_methods(X_high: NDArray[np.float64], projections: dict,
       1. ``fidelity``   -- 1 - mean(|FP| + |FN|). Total per-point distortion,
                            immune to the FP/FN cancellation that makes the mean
                            signed error look good for a badly distorted point.
-      2. ``trust``      -- classical trustworthiness (few false neighbours).
-      3. ``continuity`` -- classical continuity (few lost neighbours).
-      4. ``cluster``    -- ARI between k-means in the plane and k-means in
-                           high-D: does the picture preserve the partition?
-                           Omitted (weights renormalised) if unavailable.
+      2. ``neighbourhood`` -- average of trustworthiness and continuity (classical
+                           rank-based neighbourhood preservation in both directions).
+      3. ``shepard``    -- global distance preservation (Pearson correlation of
+                           all pairwise distances).
+      4. ``cluster``    -- ARI between clustering in the projection and clustering
+                           in high-D, using the BEST k by silhouette score (not
+                           the number of class labels). This makes the criterion
+                           data-driven and label-independent.
 
     The weights are stated explicitly rather than tuned, so the verdict is
     reproducible and auditable. A paired comparison over the per-point
@@ -591,16 +622,27 @@ def compare_methods(X_high: NDArray[np.float64], projections: dict,
     names = list(projections)
     D_high = pairwise_distances(X_high)
 
-    # Four criteria:
-    #   fidelity      -- the toolkit's own per-point distortion (1 - mean|FP|+|FN|)
-    #   neighbourhood -- trustworthiness AND continuity consolidated into one
-    #                    (the average of the two classical measures), i.e. how
-    #                    well LOCAL neighbourhoods are preserved in both directions
-    #   shepard       -- GLOBAL distance preservation: Pearson correlation of ALL
-    #                    pairwise high-D distances against the 2-D distances (the
-    #                    classical Shepard-diagram goodness). Captures whether the
-    #                    whole distance structure is kept, not just neighbourhoods.
-    #   cluster       -- ARI of the 2-D k-means partition vs the high-D one.
+    # ---- Find the best k for clustering (data-driven, not label-driven) ----
+    # This ensures the cluster preservation criterion is independent of the
+    # class labels and reflects the natural structure of the data.
+    best_k_cluster = _find_best_k_for_clustering(X_high)
+    
+    # Also compute the label-based k for comparison (reported for transparency)
+    n_classes = len(np.unique(labels))
+    
+    # ---- Cluster the high-D data with the best k ----
+    km_high = KMeans(n_clusters=best_k_cluster, n_init=10, random_state=RANDOM_STATE)
+    cl_high = km_high.fit_predict(X_high)
+    
+    # ---- Compute cluster preservation for each projection ----
+    cluster_scores = {}
+    for m, xy in projections.items():
+        km_low = KMeans(n_clusters=best_k_cluster, n_init=10, random_state=RANDOM_STATE)
+        cl_low = km_low.fit_predict(xy)
+        ari = adjusted_rand_score(cl_high, cl_low)
+        cluster_scores[m] = float(np.clip(ari, 0.0, 1.0))
+    
+    # Four criteria weights
     WEIGHTS = {"fidelity": 0.30, "neighbourhood": 0.25, "shepard": 0.20, "cluster": 0.25}
 
     # upper-triangular high-D pairwise distances (for the global Shepard corr.)
@@ -624,10 +666,8 @@ def compare_methods(X_high: NDArray[np.float64], projections: dict,
             "fidelity": float(np.clip(1.0 - dist.mean(), 0.0, 1.0)),
             "neighbourhood": float(np.clip(0.5 * (tw + co), 0.0, 1.0)),
             "shepard": float(np.clip(shepard, 0.0, 1.0)),
+            "cluster": cluster_scores.get(m, 0.0),
         }
-        if kmeans and m in kmeans.get("methods", {}):
-            comp["cluster"] = float(np.clip(
-                kmeans["methods"][m]["ari_vs_high"], 0.0, 1.0))
         w = {c: WEIGHTS[c] for c in comp}
         tot = sum(w.values())
         score = sum(comp[c] * w[c] for c in comp) / tot
@@ -679,4 +719,7 @@ def compare_methods(X_high: NDArray[np.float64], projections: dict,
         "bootstrap_ci_mean_distortion_diff": [ci[0], ci[1]],
         "decisive": decisive,
         "verdict": verdict,
+        # Additional info for transparency
+        "cluster_k_used": best_k_cluster,
+        "n_classes": n_classes,
     }

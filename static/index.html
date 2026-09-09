@@ -87,12 +87,11 @@
             <span class="field-label">Untrustworthy |error| ≥ <span class="mono" id="threshEcho">0.50</span></span>
             <input type="range" id="threshold" class="slider" min="0.01" max="1" step="0.01" value="0.5">
           </label>
-          <label class="field">
+          <label class="field" hidden>
             <span class="field-label">Consensus floor <span class="mono" id="floorEcho">0.30</span></span>
             <input type="range" id="untrustFloor" class="slider" min="0.05" max="0.60" step="0.01" value="0.30">
           </label>
-          <p class="ctl-note" style="margin-top:2px">Lower floor = more points flagged as untrustworthy. Higher floor = only the worst points are flagged.</p>
-          <div class="panel-caption">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a user-adjustable floor. Adjust the "Consensus floor" slider in the Display controls to make it more or less strict. <span id="tableMeta"></span></div>
+          <div class="panel-caption">UNTRUSTWORTHY POINTS: points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS).<span id="tableMeta"></span></div>
         </section>
 
       </div>
@@ -373,17 +372,24 @@
                   <option value="localstress">local stress</option>
                   <option value="normstress">norm. stress</option>
                 </select></span>
+              <!--
               <span class="cmp-axis-pick"><span class="trust-ctl-label">Method</span>
                 <span class="seg seg-sm" id="cmpMethodSeg">
                   <button class="seg-btn active" data-cm="MDS">MDS</button>
                   <button class="seg-btn" data-cm="PCA">PCA</button>
                 </span></span>
+              -->
+              
             </div>
-            <div class="plot" id="trustCompare" style="height:340px"></div>
-            
+            <div class="compare-grid">
+              <div class="plot compare-plot" id="trustComparePca" style="width:100%; height:100%; min-height:420px;"></div>
+              <div class="plot compare-plot" id="trustCompareMds" style="width:100%; height:100%; min-height:420px;"></div>
+            </div>
+            <div class="hover-readout" id="trustCompareHover">Hover a point to see it highlighted in both plots with its values.</div>
+
             <section class="flatpanel" data-panel="table" style="padding: 18px 0 0 0; border-bottom: none;">
               <h3 class="panel-title" data-info-title="untrustworthy">Untrustworthy Points</h3>
-              <div class="panel-caption">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a statistical fence (Q1&nbsp;&minus;&nbsp;1.5&times;IQR) or a 0.3 floor. The table shows each point's consensus, its per-projection consensus, which projection it is untrustworthy in, and which metrics agree it is bad. <span id="tableMeta"></span></div>
+              <div class="panel-caption style="max-width: 100%;">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a statistical fence (Q1&nbsp;&minus;&nbsp;1.5&times;IQR). <span id="tableMeta"></span></div>
               <div class="table-wrap">
                 <table class="dtable" id="dtable">
                   <thead></thead>

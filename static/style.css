@@ -577,7 +577,6 @@ select.inp{
   color:var(--ink-dim);
   line-height:1.55;
   margin-bottom:18px;
-  max-width:80ch;
 }
 .panel-caption .mono{ font-size:16px; }
 
@@ -1784,4 +1783,48 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 #tableMeta .mono {
   color: var(--live);
   font-weight: 700;
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 8px;
+}
+
+.compare-plot {
+  aspect-ratio: 1 / 1;
+  min-height: 380px;
+  max-height: 550px;
+  width: 100%;
+  position: relative;  /* Add this */
+  overflow: hidden;    /* Add this */
+}
+
+/* Make Plotly fill the entire container */
+.compare-plot .plot-container,
+.compare-plot .js-plotly-plot,
+.compare-plot .plotly,
+.compare-plot .main-svg {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Alternatively, target the plot div directly */
+#trustComparePca,
+#trustCompareMds {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Responsive: stack vertically on small screens */
+@media (max-width: 900px) {
+  .compare-grid {
+    grid-template-columns: 1fr;
+  }
+  .compare-plot {
+    aspect-ratio: auto;
+    min-height: 380px;
+    max-height: 450px;
+  }
 }

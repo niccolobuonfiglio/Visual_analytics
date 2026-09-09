@@ -454,9 +454,9 @@ def _run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
                 if len(flagged) > max_display:
                     flagged = flagged[:max_display]
                 
-                untrust_desc = (f"consensus < {max(fence, FLOOR):.2f} "
-                                f"(fence {fence:.2f}, floor {FLOOR:.2f}; "
-                                f"mean of {'/'.join(CONSENSUS_KEYS)}, worse of PCA/MDS)")
+                # untrust_desc = (f"consensus < {max(fence, FLOOR):.2f} "
+                                # f"(fence {fence:.2f}, floor {FLOOR:.2f}; "
+                                # f"mean of {'/'.join(CONSENSUS_KEYS)}, worse of PCA/MDS)")
                 
                 bad_thr = max(fence, FLOOR)
                 metric_short = {"f1": "F1", "js_fidelity": "JS", "localstress": "stress"}

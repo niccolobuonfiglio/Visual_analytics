@@ -960,34 +960,50 @@ function renderTable(d){
     if(typeof av==='string') return dir*av.localeCompare(bv);
     return dir*(av-bv);
   });
-  tbody.innerHTML = rows.map(r=> '<tr>' + TABLE_COLS.map(c=>{
-    let v=r[c.key];
-    if(c.cls==='col-class'){
-      const code=d.target_names.indexOf(v);
-      return `<td class="col-class"><span class="class-chip" style="background:${classColor(code<0?0:code)}"></span>${v}</td>`;
-    }
-    if(c.score){
-      const t = Math.max(0, Math.min(1, v));
-      const cls = t<0.34?'cell-fn':(t<0.67?'cell-zero':'cell-fp');
-      return `<td class="${cls}">${v.toFixed(3)}</td>`;
-    }
-    if(c.badge){
-      const b = v==='both' ? '<span class="out-badge out-both">both</span>'
-        : v==='PCA' ? '<span class="out-badge out-pca">PCA</span>'
-        : '<span class="out-badge out-mds">MDS</span>';
-      return `<td>${b}</td>`;
-    }
-    if(c.plain){ return `<td class="mono">${v}</td>`; }
-    if(c.err){
-      const cls = v<0?'cell-fn':(v>0?'cell-fp':'cell-zero');
-      return `<td class="${cls}">${v>=0?'+':''}${v.toFixed(3)}</td>`;
-    }
-    if(c.part){
-      const cls = v>0 ? (c.part==='fp'?'cell-fp':'cell-fn') : 'cell-zero';
-      return `<td class="${cls}">${v.toFixed(3)}</td>`;
-    }
-    return `<td>${v}</td>`;
-  }).join('') + '</tr>').join('');
+  
+  // Build the table with the correct array index for pinning
+  // We need to find the actual array index for each row
+  const allIds = d.table.ids;  // Array of all dataset IDs in original order
+  
+  tbody.innerHTML = rows.map(r=> {
+    // Find the array index for this dataset ID
+    const arrayIndex = allIds.indexOf(r.index);
+    // If not found (shouldn't happen), fallback to using r.index
+    const pinIndex = arrayIndex !== -1 ? arrayIndex : r.index;
+    
+    return '<tr>' + TABLE_COLS.map(c=>{
+      let v = r[c.key];
+      if(c.cls==='col-class'){
+        const code = d.target_names.indexOf(v);
+        return `<td class="col-class"><span class="class-chip" style="background:${classColor(code<0?0:code)}"></span>${v}</td>`;
+      }
+      if(c.score){
+        const t = Math.max(0, Math.min(1, v));
+        const cls = t<0.34?'cell-fn':(t<0.67?'cell-zero':'cell-fp');
+        return `<td class="${cls}">${v.toFixed(3)}</td>`;
+      }
+      if(c.badge){
+        const b = v==='both' ? '<span class="out-badge out-both">both</span>'
+          : v==='PCA' ? '<span class="out-badge out-pca">PCA</span>'
+          : '<span class="out-badge out-mds">MDS</span>';
+        return `<td>${b}</td>`;
+      }
+      if(c.plain){ return `<td class="mono">${v}</td>`; }
+      if(c.err){
+        const cls = v<0?'cell-fn':(v>0?'cell-fp':'cell-zero');
+        return `<td class="${cls}">${v>=0?'+':''}${v.toFixed(3)}</td>`;
+      }
+      if(c.part){
+        const cls = v>0 ? (c.part==='fp'?'cell-fp':'cell-fn') : 'cell-zero';
+        return `<td class="${cls}">${v.toFixed(3)}</td>`;
+      }
+      // Make index column clickable with the correct array index
+      if(c.key === 'index'){
+        return `<td class="idx-click" data-pt="${pinIndex}">${v}</td>`;
+      }
+      return `<td>${v}</td>`;
+    }).join('') + '</tr>';
+  }).join('');
 
   thead.querySelectorAll('th').forEach(th=>{
     th.addEventListener('click', ()=>{
@@ -995,6 +1011,14 @@ function renderTable(d){
       if(state.tableSort.key===k) state.tableSort.dir*=-1;
       else state.tableSort={key:k,dir:-1};
       renderTable(d);
+    });
+  });
+  
+  // Click handlers for index cells
+  tbody.querySelectorAll('.idx-click').forEach(td=>{
+    td.addEventListener('click', ()=> {
+      const idx = parseInt(td.dataset.pt);
+      pinPoint(idx);
     });
   });
 }
@@ -2336,32 +2360,325 @@ function renderOutlierTable(d, idxArr, sp, sm, key, mlabel){
   });
 }
 
-// F1 vs JS-fidelity scatter for the chosen method, over the active subset
 function renderTrustCompare(d){
-  if(typeof Plotly==='undefined') return;
-  const nm=d.neighbor_metrics, m=state.cmpMethod, t=d.table;
-  const active=trustActiveSet(d);
-  const xKey=state.cmpX, yKey=state.cmpY;
-  const xArr=nm[m][xKey], yArr=nm[m][yKey];
-  const xs=[], ys=[], cd=[];
-  active.forEach(i=>{ xs.push(xArr[i]); ys.push(yArr[i]); cd.push([t.class_names[i], t.ids[i]]); });
-  const xLab=METRIC_LABELS[xKey]||xKey, yLab=METRIC_LABELS[yKey]||yKey;
-  // colour by |disagreement| = distance from the y=x diagonal
-  const disagree = xs.map((x,i)=>Math.abs(x-ys[i]));
-  const same = xKey===yKey;
-  Plotly.react('trustCompare', [
-    {type:'scattergl', mode:'markers', x:xs, y:ys, customdata:cd,
-     marker:{size:7, color: same?'#46566a':disagree, colorscale:[[0,'#46566a'],[0.5,'#e0a54b'],[1,'#d24b52']],
-       cmin:0, cmax:0.6, showscale: !same,
-       colorbar: same?undefined:{title:{text:'|disagree|',font:{size:9,color:'#9aa7b6'}},thickness:10,len:0.9},
-       line:{color:'rgba(0,0,0,0.4)',width:0.4}},
-     hovertemplate:'idx %{customdata[1]}, %{customdata[0]}<br>'+xLab+' %{x:.3f}, '+yLab+' %{y:.3f}<extra></extra>'},
-    {type:'scatter', mode:'lines', x:[0,1], y:[0,1], line:{color:'#63707f',width:1,dash:'dash'}, hoverinfo:'skip', showlegend:false},
-  ], baseLayout({
-    xaxis:Object.assign({title:xLab,range:[-0.02,1.02]},AXIS),
-    yaxis:Object.assign({title:yLab,range:[-0.02,1.02]},AXIS),
-    showlegend:false, height:340, margin:{l:52,r:14,t:12,b:40},
-  }), PLOT_CONFIG);
+  if(typeof Plotly==='undefined') {
+    console.warn('Plotly not available');
+    return;
+  }
+  
+  const nm = d.neighbor_metrics, t = d.table;
+  if (!nm) {
+    console.warn('No neighbor metrics available');
+    return;
+  }
+  
+  const active = trustActiveSet(d);
+  if (!active || active.size === 0) {
+    console.warn('No active points');
+    return;
+  }
+  
+  const xKey = state.cmpX || 'f1';
+  const yKey = state.cmpY || 'js_fidelity';
+  const xLab = METRIC_LABELS[xKey] || xKey;
+  const yLab = METRIC_LABELS[yKey] || yKey;
+  
+  // ---- Calculate displacement for each point ----
+  // Displacement = Euclidean distance between PCA and MDS positions
+  const pcaX = nm.PCA[xKey];
+  const pcaY = nm.PCA[yKey];
+  const mdsX = nm.MDS[xKey];
+  const mdsY = nm.MDS[yKey];
+  
+  // Check if data exists
+  if (!pcaX || !pcaY || !mdsX || !mdsY) {
+    console.warn('Missing metric data for displacement calculation');
+    return;
+  }
+  
+  // Calculate displacement for active points
+  const rawDisplacement = [];
+  const activeArr = [...active];
+  const activeIndices = [];
+  
+  activeArr.forEach(i => {
+    if (pcaX[i] !== undefined && pcaY[i] !== undefined && mdsX[i] !== undefined && mdsY[i] !== undefined) {
+      const dx = mdsX[i] - pcaX[i];
+      const dy = mdsY[i] - pcaY[i];
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      rawDisplacement.push(dist);
+      activeIndices.push(i);
+    }
+  });
+  
+  if (activeIndices.length === 0) {
+    console.warn('No valid points for displacement calculation');
+    return;
+  }
+  
+  // Normalize displacement to [0, 1] based on the maximum
+  const maxDisp = Math.max(0.001, ...rawDisplacement);
+  const displacement = rawDisplacement.map(d => d / maxDisp);
+  
+  // Helper to create a trace for a given method
+  function createTrace(method, xArr, yArr) {
+    const xs = [], ys = [], cd = [];
+    
+    activeIndices.forEach((i, idx) => {
+      xs.push(xArr[i]);
+      ys.push(yArr[i]);
+      cd.push([t.class_names[i], t.ids[i], i, displacement[idx], rawDisplacement[idx]]);
+    });
+    
+    return {
+      type: 'scattergl',
+      mode: 'markers',
+      x: xs,
+      y: ys,
+      customdata: cd,
+      marker: {
+        size: 7,
+        color: displacement,
+        colorscale: [
+          [0, '#4ec97a'],      // Green: small displacement (stable)
+          [0.5, '#e0a54b'],    // Amber: moderate displacement
+          [1, '#d24b52']       // Red: large displacement (unstable)
+        ],
+        cmin: 0,
+        cmax: 1,
+        showscale: true,
+        colorbar: {
+          title: { text: 'Metric Displacement', font: { size: 12, color: '#ffffff' } },
+          thickness: 10,
+          len: 0.9,
+          tickvals: [0, 0.5, 1],
+          ticktext: ['stable', 'moderate', 'unstable']
+        },
+        line: { color: 'rgba(0,0,0,0.4)', width: 0.4 }
+      },
+      hovertemplate: 
+        'idx %{customdata[1]}, %{customdata[0]}<br>' +
+        xLab + ' %{x:.3f}, ' + yLab + ' %{y:.3f}<br>' +
+        'Displacement: %{customdata[3]:.3f}<extra></extra>'
+    };
+  }
+  
+  // Create traces for PCA and MDS
+  const pcaTrace = createTrace('PCA', pcaX, pcaY);
+  const mdsTrace = createTrace('MDS', mdsX, mdsY);
+  
+  // Diagonal line trace (shared)
+  const diagTrace = {
+    type: 'scatter',
+    mode: 'lines',
+    x: [0, 1],
+    y: [0, 1],
+    line: { color: '#63707f', width: 1, dash: 'dash' },
+    hoverinfo: 'skip',
+    showlegend: false
+  };
+  
+  // Ring trace for highlighting (empty initially)
+  const ringTrace = {
+    type: 'scattergl',
+    mode: 'markers',
+    x: [],
+    y: [],
+    marker: {
+      size: 15,
+      color: 'rgba(0,0,0,0)',
+      line: {
+        color: '#e0a54b',
+        width: 2.5
+      }
+    },
+    hoverinfo: 'skip',
+    showlegend: false
+  };
+  
+  // Layout for the plots - square aspect ratio with equal ranges
+  const compareLayout = (title) => baseLayout({
+    title: { text: title, font: { size: 12, color: '#9aa7b6' }, x: 0.02, xanchor: 'left' },
+    xaxis: Object.assign({ 
+      title: xLab, 
+      range: [-0.02, 1.02],
+      scaleanchor: 'y',
+      scaleratio: 1
+    }, AXIS),
+    yaxis: Object.assign({ 
+      title: yLab, 
+      range: [-0.02, 1.02] 
+    }, AXIS),
+    showlegend: false,
+    margin: { l: 58, r: 18, t: 32, b: 46 },
+    autosize: true,  
+  });
+  
+  try {
+    // Clear any existing plots
+    const pcaEl = document.getElementById('trustComparePca');
+    const mdsEl = document.getElementById('trustCompareMds');
+    
+    if (pcaEl) {
+      Plotly.purge(pcaEl);
+    }
+    if (mdsEl) {
+      Plotly.purge(mdsEl);
+    }
+    
+    // Render PCA plot with ring trace
+    Plotly.react('trustComparePca', [pcaTrace, ringTrace, diagTrace], compareLayout('PCA'), PLOT_CONFIG);
+    
+    // Render MDS plot with ring trace
+    Plotly.react('trustCompareMds', [mdsTrace, ringTrace, diagTrace], compareLayout('MDS'), PLOT_CONFIG);
+    
+    console.log('Trust compare plots rendered successfully');
+  } catch(e) {
+    console.error('Error rendering trust compare plots:', e);
+    // Show error message in the plot containers
+    const pcaEl = document.getElementById('trustComparePca');
+    const mdsEl = document.getElementById('trustCompareMds');
+    if (pcaEl) pcaEl.innerHTML = '<div class="plot-fallback">Error loading PCA comparison plot. See console for details.</div>';
+    if (mdsEl) mdsEl.innerHTML = '<div class="plot-fallback">Error loading MDS comparison plot. See console for details.</div>';
+  }
+  
+  // --- LINKED HOVERING ---
+  // Store the data for each method to look up points
+  const methodData = {
+    PCA: { x: pcaX, y: pcaY },
+    MDS: { x: mdsX, y: mdsY }
+  };
+  const displacementMap = {};
+  activeIndices.forEach((i, idx) => {
+    displacementMap[i] = displacement[idx];
+  });
+  const rawDisplacementMap = {};
+  activeIndices.forEach((i, idx) => {
+    rawDisplacementMap[i] = rawDisplacement[idx];
+  });
+  
+  // Function to highlight a point in both plots
+  function highlightPoint(idx, sourcePlot) {
+    const ro = document.getElementById('trustCompareHover');
+    
+    if (idx === null || idx === undefined) {
+      // Clear highlighting
+      ['trustComparePca', 'trustCompareMds'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.data) {
+          try {
+            Plotly.restyle(id, {
+              x: [[]],
+              y: [[]],
+              'marker.line.color': [[]]
+            }, [1]);
+          } catch(e) {}
+        }
+      });
+      if (ro) ro.innerHTML = 'Hover a point to see it highlighted in both plots with its values.';
+      return;
+    }
+    
+    // Check if the index is in the active set
+    if (!activeIndices.includes(idx)) {
+      return;
+    }
+    
+    // Get the point data for both methods
+    const pcaXval = methodData.PCA.x[idx];
+    const pcaYval = methodData.PCA.y[idx];
+    const mdsXval = methodData.MDS.x[idx];
+    const mdsYval = methodData.MDS.y[idx];
+    
+    // Update the ring traces
+    try {
+      Plotly.restyle('trustComparePca', {
+        x: [[pcaXval]],
+        y: [[pcaYval]],
+        'marker.line.color': [['#e0a54b']]
+      }, [1]);
+      
+      Plotly.restyle('trustCompareMds', {
+        x: [[mdsXval]],
+        y: [[mdsYval]],
+        'marker.line.color': [['#e0a54b']]
+      }, [1]);
+    } catch(e) {}
+    
+    // Update hover readout
+    if (ro) {
+      const cls = t.class_names[idx];
+      const id = t.ids[idx];
+      
+      const pcaVals = {
+        f1: nm.PCA.f1[idx],
+        js: nm.PCA.js_fidelity[idx],
+        ls: nm.PCA.localstress[idx],
+        ns: nm.PCA.normstress[idx]
+      };
+      const mdsVals = {
+        f1: nm.MDS.f1[idx],
+        js: nm.MDS.js_fidelity[idx],
+        ls: nm.MDS.localstress[idx],
+        ns: nm.MDS.normstress[idx]
+      };
+      
+      // Calculate displacement
+      const dx = mdsXval - pcaXval;
+      const dy = mdsYval - pcaYval;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const normDisp = displacementMap[idx] || 0;
+      
+      // Determine stability level
+      let stability = 'stable';
+      let stabilityColor = '#4ec97a';
+      if (normDisp > 0.7) {
+        stability = 'unstable';
+        stabilityColor = '#d24b52';
+      } else if (normDisp > 0.3) {
+        stability = 'moderate';
+        stabilityColor = '#e0a54b';
+      }
+      
+      ro.innerHTML = `
+        <span class="hr-idx">idx ${id}</span> 
+        <span class="class-chip" style="background:${classColor(t.labels[idx])}"></span>
+        <span style="font-weight:600; color:var(--ink);">${cls}</span>
+        <span style="color:var(--ink); margin-left:12px;">
+          PCA (${pcaXval.toFixed(3)}, ${pcaYval.toFixed(3)}) → 
+          MDS (${mdsXval.toFixed(3)}, ${mdsYval.toFixed(3)})
+        </span>
+        <span style="display:block; margin-top:4px; font-size:16px;">
+          <span style="color:${stabilityColor};">${stability.toUpperCase()}</span>
+          <span style="color:var(--ink);"> displacement: ${dist.toFixed(3)} (${(normDisp * 100).toFixed(0)}% of max)</span>
+        </span>
+      `;
+    }
+  }
+  
+  // Attach hover events to both plots
+  ['trustComparePca', 'trustCompareMds'].forEach(plotId => {
+    const el = document.getElementById(plotId);
+    if (el && el.on) {
+      // Remove existing listeners to avoid duplicates
+      if (el.removeAllListeners) {
+        el.removeAllListeners('plotly_hover');
+        el.removeAllListeners('plotly_unhover');
+      }
+      
+      el.on('plotly_hover', (ev) => {
+        if (!ev || !ev.points || !ev.points.length) return;
+        const p = ev.points.find(pt => pt.curveNumber === 0);
+        if (!p) return;
+        const idx = p.customdata ? p.customdata[2] : p.pointIndex;
+        highlightPoint(idx, plotId);
+      });
+      
+      el.on('plotly_unhover', () => {
+        highlightPoint(null);
+      });
+    }
+  });
 }
 
 // Build a clean dual-range control (two handles, min never exceeds max, they
