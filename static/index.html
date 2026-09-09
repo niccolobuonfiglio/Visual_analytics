@@ -18,8 +18,8 @@
   <header class="masthead">
     <div class="mast-left">    </div>
     <div class="mast-center">
-      <h1 class="mast-title">Projection Fidelity Console</h1>
-      <p class="mast-sub">Per-point PCA / MDS error on a continuous scale</p>
+      <h1 class="mast-title">Projection Fidelity Toolkit</h1>
+      <p class="mast-sub">Per-point PCA / MDS comparison and analysis</p>
     </div>
     <div class="mast-right">
     </div>
@@ -41,7 +41,7 @@
             <select id="dataset" class="inp"></select>
           </label>
           <label class="field">
-            <span class="field-label">Max samples <span class="hint">MDS is O(n²)</span></span>
+            <span class="field-label">Max samples </span>
             <input type="number" id="maxSamples" class="inp" placeholder="all" min="10" step="10">
           </label>
           <label class="check">
@@ -68,20 +68,19 @@
             </div>
             <label class="check">
               <input type="checkbox" id="adaptive" checked>
-              <span>Adaptive k <span class="hint">per-point, by local density, recommended</span></span>
+              <span>Adaptive k: per-point, by local density</span>
             </label>
             <p class="ctl-note" style="margin-top:2px">A single global
-              <em>k</em> is too coarse in dense regions and too noisy in sparse ones.
-              Adaptive <em>k</em> gives each point a neighbourhood sized to its local
-              density (the slider then sets the <em>median</em> point k), so
-              the fidelity metric is fair across regions of differing density.</p>
+              k is too coarse in dense regions and too noisy in sparse ones.
+              Adaptive k gives each point a neighbourhood sized to its local
+              density, so the fidelity metric is fair across regions of differing density.</p>
           </div>
         </section>
 
         <section class="ctl-group">
           <div class="ctl-group-head">
             <span class="ctl-num">03</span>
-            <h2>Display</h2>
+            <h2>Untrustworthiness</h2>
           </div>
           <label class="field" id="untrustworthy-error">
             <span class="field-label">Untrustworthy |error| ≥ <span class="mono" id="threshEcho">0.50</span></span>
@@ -100,7 +99,6 @@
       <div class="rail-foot">
         <button id="runBtn" class="run-btn">
           <span class="run-btn-label">Run analysis</span>
-          <span class="run-btn-kbd">⏎</span>
         </button>
         <button id="clearBtn" class="ghost-btn" style="margin-top: 8px;">
           Clear results

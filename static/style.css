@@ -385,6 +385,8 @@ select.inp{
   padding: 10px 20px 12px;
   border-top: 1px solid var(--line);
   background:var(--bg-panel);
+  max-width: 800px;
+  margin: 0 auto;
 }
 
 .run-btn{
@@ -394,7 +396,7 @@ select.inp{
   border:none;
   padding:11px;
   font-family:var(--sans);
-  font-size:17px;
+  font-size: 24px;
   font-weight:700;
   letter-spacing:.02em;
   cursor:pointer;

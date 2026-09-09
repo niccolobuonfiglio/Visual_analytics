@@ -646,11 +646,11 @@ function renderStatbar(d){
     (sub?`<div class="stat-sub">${sub}</div>`:'')+`</div>`;
   const signCls = (v)=> v<0?'neg':(v>0?'pos':'');
   $('statbar').innerHTML =
-    pill('Dataset', info.name, '', `${info.standardized?'standardized':'raw'} | ${d.metric}`) +
+    pill('Dataset', info.name, '', `${info.standardized?'standardized':'raw'}`) +
     pill('Samples', info.n_samples, '', `${info.n_features} features | ${info.n_classes} classes`) +
-    (d.timings ? pill('PCA time', (d.timings.pca_ms).toFixed(0)+' ms', '', 'compute') : '') +
-    (d.timings ? pill('MDS time', (d.timings.mds_ms).toFixed(0)+' ms', signCls(d.timings.pca_ms - d.timings.mds_ms), 'compute') : '') +
-    pill('Untrustworthy', s.untrustworthy_count, '', d.untrust_desc || 'consensus') +
+    (d.timings ? pill('PCA time', (d.timings.pca_ms).toFixed(0)+' ms', '', 'computed') : '') +
+    (d.timings ? pill('MDS time', (d.timings.mds_ms).toFixed(0)+' ms', signCls(d.timings.pca_ms - d.timings.mds_ms), 'computed') : '') +
+    pill('Untrustworthy', s.untrustworthy_count, '', d.untrust_desc || 'consensus fidelity') +
     pill('Runtime', info.elapsed+'s', '', 'pipeline');
   renderWarnings(d);
 }
