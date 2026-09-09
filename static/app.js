@@ -21,6 +21,8 @@ const state = {
   trustView: 'score',      // 'score' | 'class' -> colour the trust plots by
   brushMode: 'within',     // 'within' | 'all'      -> boxplot recompute mode
   cmpMethod: 'MDS',        // method for the metric-vs-metric scatter
+  scoreFilterPca: null,    // {lo, hi} for PCA scores
+  scoreFilterMds: null,    // {lo, hi} for MDS scores
   filterDisagreement: null,  // 'large' | 'medium' | 'small' | 'pca_better' | 'mds_better' | null
   cmpX: 'f1',              // x-axis metric of the comparison scatter
   cmpY: 'js_fidelity',     // y-axis metric of the comparison scatter
@@ -1666,9 +1668,10 @@ function componentBars(pm){
 function trustFilteredIndices(d){
   const t = d.table, n = t.ids.length;
   const out = [];
-  const fc = state.filterClasses, af = state.attrFilter, sf = state.scoreFilter;
+  const fc = state.filterClasses, af = state.attrFilter;
+  const sfPca = state.scoreFilterPca, sfMds = state.scoreFilterMds;
   const nm = d.neighbor_metrics, key = state.trustMetric;
-  const fd = state.filterDisagreement;  // NEW
+  const fd = state.filterDisagreement;
   
   for(let i = 0; i < n; i++){
     // Class filter
@@ -1680,10 +1683,20 @@ function trustFilteredIndices(d){
       if(v < af.lo || v > af.hi) continue;
     }
     
-    // Score filter
-    if(sf && nm){
-      const sp = nm.PCA[key][i], sm = nm.MDS[key][i];
-      if(sp < sf.lo || sp > sf.hi || sm < sf.lo || sm > sf.hi) continue;
+    // Score filter - separate PCA and MDS
+    if((sfPca || sfMds) && nm){
+      const sp = nm.PCA[key][i];
+      const sm = nm.MDS[key][i];
+      
+      // Check PCA filter
+      if(sfPca) {
+        if(sp < sfPca.lo || sp > sfPca.hi) continue;
+      }
+      
+      // Check MDS filter
+      if(sfMds) {
+        if(sm < sfMds.lo || sm > sfMds.hi) continue;
+      }
     }
     
     // Disagreement filter
@@ -1737,6 +1750,7 @@ function renderTrust(d){
   renderTrustBox(d);
   renderTrustCompare(d);
   renderTrustSelTable(d);
+  updateTrustFilterNote(d); 
   updateFilterStatus(d);
 }
 
@@ -2020,13 +2034,41 @@ function updateFilterStatus(d) {
     if (clearBtn) clearBtn.style.display = 'none';
   }
   
+  // --- SHOW THE SELECTION TABLE WHEN FILTERS ARE ACTIVE ---
+  // If filters are active but no brush selection, show the filtered points in the table
+  const sel = state.trustSel;
+  if (filtering && (!sel || sel.size === 0)) {
+    // Show the table with filtered points
+    const head = document.getElementById('trustSelCount');
+    const clr = document.getElementById('trustSelClear');
+    const wrap = document.getElementById('trustSelWrap');
+    
+    if (head) {
+      head.innerHTML = `<span class="mono">${active.size}</span> points match the current filters (click to pin)`;
+    }
+    if (clr) clr.hidden = false;
+    if (wrap) wrap.hidden = false;
+    
+    // Render the filtered points table
+    renderFilteredPointsTable(d, active);
+  } else if (!filtering && (!sel || sel.size === 0)) {
+    // No filters and no selection - hide the table
+    const head = document.getElementById('trustSelCount');
+    const clr = document.getElementById('trustSelClear');
+    const wrap = document.getElementById('trustSelWrap');
+    if (head) head.textContent = 'No points selected: drag a box or lasso on either plot.';
+    if (clr) clr.hidden = true;
+    if (wrap) wrap.hidden = true;
+  }
+  
   // Clear button handler
   if (clearBtn && !clearBtn.dataset.wired) {
     clearBtn.dataset.wired = '1';
     clearBtn.onclick = function() {
       state.filterClasses.clear();
       state.attrFilter = null;
-      state.scoreFilter = null;
+      state.scoreFilterPca = null;
+      state.scoreFilterMds = null;
       state.filterDisagreement = null;
       state.trustSel = null;
       
@@ -2046,18 +2088,94 @@ function updateFilterStatus(d) {
   }
 }
 
+// New function to render the filtered points table
+function renderFilteredPointsTable(d, activeSet) {
+  const tbl = document.getElementById('trustSelTable');
+  if (!tbl) return;
+  
+  const nm = d.neighbor_metrics;
+  const key = state.trustMetric;
+  const t = d.table;
+  
+  // Sortable columns
+  const cols = [
+    {k:'index', label:'index', get:i=>t.ids[i]},
+    {k:'class', label:'class', get:i=>t.class_names[i]},
+    {k:'pca',   label:'PCA',   get:i=>nm.PCA[key][i]},
+    {k:'mds',   label:'MDS',   get:i=>nm.MDS[key][i]},
+  ];
+  
+  const st = state.trustSelSort;
+  const col = cols.find(c=>c.k===st.key) || cols[2];
+  const idx = [...activeSet].sort((a,b)=>{
+    let va = col.get(a), vb = col.get(b);
+    if (typeof va === 'string') { return st.dir * va.localeCompare(vb); }
+    return st.dir * (va - vb);
+  });
+  
+  tbl.querySelector('thead').innerHTML = '<tr>' + cols.map(c=>{
+    const cls = st.key===c.k ? (st.dir>0?'sorted-asc':'sorted-desc') : '';
+    return `<th class="th-sort ${cls}" data-selsort="${c.k}">${c.label}</th>`;
+  }).join('') + '</tr>';
+  
+  tbl.querySelector('tbody').innerHTML = idx.slice(0, 200).map(i=>{
+    const code = t.labels[i];
+    const cell = (v) => {
+      const c = v < 0.34 ? 'cell-fn' : (v < 0.67 ? 'cell-zero' : 'cell-fp');
+      return `<td class="${c}">${v.toFixed(3)}</td>`;
+    };
+    return `<tr>
+      <td class="idx-click" data-pt="${i}">${t.ids[i]}</td>
+      <td class="col-class"><span class="class-chip" style="background:${classColor(code)}"></span>${t.class_names[i]}</td>
+      ${cell(nm.PCA[key][i])}
+      ${cell(nm.MDS[key][i])}
+    </tr>`;
+  }).join('');
+  
+  // Header click -> sort
+  tbl.querySelectorAll('th[data-selsort]').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const k = th.dataset.selsort;
+      if (state.trustSelSort.key === k) state.trustSelSort.dir *= -1;
+      else state.trustSelSort = {key:k, dir:1};
+      // Re-render the filtered table
+      renderFilteredPointsTable(d, activeSet);
+    });
+  });
+  
+  // Index click -> pin point
+  tbl.querySelectorAll('.idx-click').forEach(td=>{
+    td.addEventListener('click', ()=> pinPoint(parseInt(td.dataset.pt)));
+  });
+}
+
 // selection detail table (same style as the error-space one)
 function renderTrustSelTable(d){
   const sel = state.trustSel;
   const head = $('trustSelCount'), clr = $('trustSelClear'), wrap = $('trustSelWrap');
   if(!head) return;
+  
+  // Check if filters are active
+  const active = trustActiveSet(d);
+  const filtering = active.size !== d.table.ids.length;
+  
+  // If filters are active but no brush selection, show filtered points
+  if (filtering && (!sel || sel.size === 0)) {
+    // This is handled by updateFilterStatus
+    return;
+  }
+  
   if(!sel || !sel.size){
     head.textContent = 'No points selected: drag a box or lasso on either plot.';
-    if(clr) clr.hidden = true; if(wrap) wrap.hidden = true; return;
+    if(clr) clr.hidden = true; 
+    if(wrap) wrap.hidden = true; 
+    return;
   }
+  
   const nm=d.neighbor_metrics, key=state.trustMetric, t=d.table;
   head.innerHTML = `<span class="mono">${sel.size}</span> points selected, scores shown for the active metric (${METRIC_LABELS[key]||key}).`;
-  if(clr) clr.hidden = false; if(wrap) wrap.hidden = false;
+  if(clr) clr.hidden = false; 
+  if(wrap) wrap.hidden = false;
   const tbl = $('trustSelTable');
   // sortable columns
   const cols=[
@@ -2292,19 +2410,45 @@ function buildTrustFilters(d){
     }));
   }
 
-  // SCORE filter: a 0–1 dual range on the currently-selected metric, keeping
-  // only points whose PCA and MDS score both fall in the window. Rebuilt when
-  // the metric changes (so the label matches).
-  const sc=$('tfScore');
+  // SCORE filter: two separate dual ranges - one for PCA, one for MDS
+  const sc = $('tfScore');
   if(sc && sc.dataset.metric!==state.trustMetric){
     sc.dataset.metric=state.trustMetric;
-    state.scoreFilter=null;   // reset when metric changes
-    sc.innerHTML='';
-    sc.appendChild(makeDualRange(0, 1, (a,b)=>{
-      state.scoreFilter = (a<=0 && b>=1) ? null : {lo:a, hi:b};
-      refreshTrust(d);
-    }));
-    const lbl=$('tfScoreMetric'); if(lbl) lbl.textContent='('+(METRIC_LABELS[state.trustMetric]||state.trustMetric)+')';
+    state.scoreFilterPca=null;
+    state.scoreFilterMds=null;
+    
+    // Clear and rebuild
+    sc.innerHTML = `
+      <div class="tf-score-method">
+        <span style="font-size: 12px; color: #82abd8; font-weight: 600;">PCA</span>
+        <span id="tfScorePca"></span>
+      </div>
+      <div class="tf-score-method">
+        <span style="font-size: 12px; color: #e0a54b; font-weight: 600;">MDS</span>
+        <span id="tfScoreMds"></span>
+      </div>
+    `;
+    
+    // Create PCA slider
+    const pcaContainer = document.getElementById('tfScorePca');
+    if (pcaContainer) {
+      pcaContainer.appendChild(makeDualRange(0, 1, (a,b) => {
+        state.scoreFilterPca = (a<=0 && b>=1) ? null : {lo:a, hi:b};
+        refreshTrust(d);
+      }));
+    }
+    
+    // Create MDS slider
+    const mdsContainer = document.getElementById('tfScoreMds');
+    if (mdsContainer) {
+      mdsContainer.appendChild(makeDualRange(0, 1, (a,b) => {
+        state.scoreFilterMds = (a<=0 && b>=1) ? null : {lo:a, hi:b};
+        refreshTrust(d);
+      }));
+    }
+    
+    const lbl=$('tfScoreMetric'); 
+    if(lbl) lbl.textContent='('+(METRIC_LABELS[state.trustMetric]||state.trustMetric)+')';
   }
 
   // Disagreement filter
@@ -2340,11 +2484,18 @@ function buildTrustFilters(d){
   }
 
   const clr=$('tfClear');
-  if(clr && !clr.dataset.wired){ clr.dataset.wired='1';
+  if(clr && !clr.dataset.wired){ 
+    clr.dataset.wired='1';
     clr.addEventListener('click',()=>{
-      state.filterClasses.clear(); state.attrFilter=null; state.scoreFilter=null; state.trustSel=null; state.filterDisagreement = null;
+      state.filterClasses.clear(); 
+      state.attrFilter=null; 
+      state.scoreFilterPca=null;
+      state.scoreFilterMds=null;
+      state.trustSel=null; 
+      state.filterDisagreement = null;
       document.querySelectorAll('#tfClasses .tf-chip').forEach(b=>b.classList.remove('active'));
-      const sel=$('tfAttrSel'); if(sel){ sel.value=''; } const ar=$('tfAttrRange'); if(ar) ar.innerHTML='';
+      const sel=$('tfAttrSel'); if(sel){ sel.value=''; } 
+      const ar=$('tfAttrRange'); if(ar) ar.innerHTML='';
       const dis = $('tfDisagreement');
       if(dis) dis.value = '';
       // rebuild the score range to reset its handles
@@ -2369,7 +2520,14 @@ function updateTrustFilterNote(d){
   const parts = [];
   
   if(state.filterClasses.size) parts.push(`${state.filterClasses.size} class${state.filterClasses.size>1?'es':''}`);
-  if(state.scoreFilter) parts.push(`${METRIC_LABELS[state.trustMetric]||state.trustMetric} ∈ [${state.scoreFilter.lo.toFixed(2)}, ${state.scoreFilter.hi.toFixed(2)}]`);
+  
+  if(state.scoreFilterPca) {
+    parts.push(`PCA ${METRIC_LABELS[state.trustMetric]||state.trustMetric} ∈ [${state.scoreFilterPca.lo.toFixed(2)}, ${state.scoreFilterPca.hi.toFixed(2)}]`);
+  }
+  if(state.scoreFilterMds) {
+    parts.push(`MDS ${METRIC_LABELS[state.trustMetric]||state.trustMetric} ∈ [${state.scoreFilterMds.lo.toFixed(2)}, ${state.scoreFilterMds.hi.toFixed(2)}]`);
+  }
+  
   if(state.attrFilter) parts.push(`${d.table.feature_names[state.attrFilter.col]} ∈ [${state.attrFilter.lo.toFixed(2)}, ${state.attrFilter.hi.toFixed(2)}]`);
   if(state.trustSel && state.trustSel.size) parts.push('a brushed region');
   
@@ -2429,8 +2587,11 @@ function clearTrustSelection(){
   if(state.result){
     renderTrustProjections(state.result);
     applyTrustRings(state.result, new Set());
-    renderTrustBox(state.result); renderTrustCompare(state.result);
-    renderTrustSelTable(state.result); updateTrustFilterNote(state.result);
+    renderTrustBox(state.result); 
+    renderTrustCompare(state.result);
+    renderTrustSelTable(state.result); 
+    updateTrustFilterNote(state.result);
+    updateFilterStatus(state.result);  // This will now show filtered points if filters are active
   }
   document.querySelectorAll('.idx-click').forEach(td=>td.classList.remove('idx-pinned'));
   updateTrustPlotClearBtn();

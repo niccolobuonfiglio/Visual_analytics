@@ -327,7 +327,16 @@
                 </div>
                 <div class="tf-row">
                   <span class="tf-label">By score <span class="hint" id="tfScoreMetric">(F1)</span></span>
-                  <div class="tf-attr" id="tfScore"></div>
+                  <div class="tf-attr tf-score-container" id="tfScore" style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <div class="tf-score-method">
+                      <span style="font-size: 12px; color: #82abd8; font-weight: 600;">PCA</span>
+                      <span id="tfScorePca"></span>
+                    </div>
+                    <div class="tf-score-method">
+                      <span style="font-size: 12px; color: #e0a54b; font-weight: 600;">MDS</span>
+                      <span id="tfScoreMds"></span>
+                    </div>
+                  </div>
                 </div>
                 <div class="tf-row">
                   <span class="tf-label">By method disagreement</span>

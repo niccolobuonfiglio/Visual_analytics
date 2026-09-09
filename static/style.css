@@ -1684,3 +1684,36 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 .filter-status.has-filters .filter-count strong {
   color: var(--live);
 }
+
+/* Score filter - side by side PCA and MDS */
+.tf-score-container {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.tf-score-method {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-left: 40px;
+  gap: 4px;
+  padding: 6px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.tf-score-method .dual-range {
+  width: 160px;
+}
+
+.tf-score-method .dual-range .dr-vals {
+  font-size: 11px;
+}
+
+.tf-score-method > span:first-child {
+  font-size: 12px;
+  font-weight: 600;
+}
