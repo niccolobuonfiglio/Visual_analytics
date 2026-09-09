@@ -416,7 +416,7 @@
            
           <div class="an-card" id="anAnnealCard">
             <div class="an-card-head">
-              <h3 data-info-title="annealing">Neighbourhood search &nbsp;<span class="an-subtle">simulated annealing</span></h3>
+              <h3 data-info-title="annealing">Neighbourhood search <span class="an-subtle">simulated annealing</span></h3>
               <span class="an-chip an-chip-quiet" id="anAnnealChip">,</span>
             </div>
             <div class="an-why" id="anAnnealWhy">
@@ -473,29 +473,31 @@
             <div class="feat-weights" id="featWeights" hidden></div>
           </div>
 
-           <!-- ADJUSTED-DISTANCE COMPARISON: always shown -->
+           <!-- ADJUSTED-DISTANCE COMPARISON -->
 
-          <div class="an-card wmds-compare" id="wmdsCompare">
-            <div class="wmds-head">
-              <span class="wmds-title" data-info-title="adjdist">Plain vs adjusted MDS</span>
-              <span class="wmds-delta" id="wmdsDelta"> </span>
-            </div>
-            <p class="wmds-note" id="wmdsNote"></p>
-            <div class="es-grid es-grid-rel">
-              <div class="plot es-plot" id="wmdsPlain"></div>
-              <div class="plot es-plot" id="wmdsWeighted"></div>
-              <button class="ghost-btn ghost-btn-sm plot-clear-btn" id="wmdsPlotClear" hidden>Clear selection</button>
-            </div>
-            <div class="hover-readout" id="wmdsHover">Hover a point to see its details; the same point is highlighted in the other layout.</div>
-            <div class="brush-detail" id="wmdsDetail">
-              <div class="brush-detail-head">
-                <span id="wmdsSelCount">No points selected: drag on either layout to compare where the same points land.</span>
-                <button class="ghost-btn ghost-btn-sm" id="wmdsSelClear" hidden>Clear</button>
+          <!--
+            <div class="an-card wmds-compare" id="wmdsCompare">
+              <div class="wmds-head">
+                <span class="wmds-title" data-info-title="adjdist">Plain vs adjusted MDS</span>
+                <span class="wmds-delta" id="wmdsDelta"> </span>
               </div>
-              <div class="table-wrap table-wrap-sm" id="wmdsSelWrap" hidden>
-                <table class="dtable" id="wmdsSelTable"><thead></thead><tbody></tbody></table>
+              <p class="wmds-note" id="wmdsNote"></p>
+              <div class="es-grid es-grid-rel">
+                <div class="plot es-plot" id="wmdsPlain"></div>
+                <div class="plot es-plot" id="wmdsWeighted"></div>
+                <button class="ghost-btn ghost-btn-sm plot-clear-btn" id="wmdsPlotClear" hidden>Clear selection</button>
+              </div>
+              <div class="hover-readout" id="wmdsHover">Hover a point to see its details; the same point is highlighted in the other layout.</div>
+              <div class="brush-detail" id="wmdsDetail">
+                <div class="brush-detail-head">
+                  <span id="wmdsSelCount">No points selected: drag on either layout to compare where the same points land.</span>
+                  <button class="ghost-btn ghost-btn-sm" id="wmdsSelClear" hidden>Clear</button>
+                </div>
+                <div class="table-wrap table-wrap-sm" id="wmdsSelWrap" hidden>
+                  <table class="dtable" id="wmdsSelTable"><thead></thead><tbody></tbody></table>
               </div>
             </div>
+          -->
           
           </div>
         </section>

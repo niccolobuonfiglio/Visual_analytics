@@ -1272,7 +1272,7 @@ select.inp{
   background:var(--bg-inset); border:1px solid var(--line); }
 .wt-row{ display:flex; align-items:center; gap:10px; margin:6px 0; }
 .wt-name{ font-size:16px; color:var(--ink-dim); width:78px; text-transform:capitalize; }
-.wt-slider{ flex:1; }
+.wt-slider{ flex:1; margin-left: 10px;}
 .wt-val{ font-family:var(--mono); font-size:16px; color:var(--ink); width:34px; text-align:right; }
 .wt-live{ font-size:16px; color:var(--ink-dim); line-height:1.5; margin-top:8px;
   padding-top:8px; border-top:1px solid var(--line); }
@@ -1716,4 +1716,72 @@ h4.info-h{ display:flex; align-items:center; gap:0; margin:14px 0 8px; }
 .tf-score-method > span:first-child {
   font-size: 12px;
   font-weight: 600;
+}
+
+/* Critical row highlighting (4/4 metrics in bottom 25%) */
+.dtable tbody tr.critical-row {
+  background: rgba(210, 75, 82, 0.08);
+  border-left: 3px solid var(--fn);
+}
+.dtable tbody tr.critical-row:hover {
+  background: rgba(210, 75, 82, 0.15);
+}
+
+/* Critical badge */
+.critical-badge {
+  display: inline-block;
+  margin-right: 4px;
+  font-size: 14px;
+  cursor: help;
+  animation: critical-pulse 2s ease-in-out infinite;
+}
+@keyframes critical-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* Detail text next to badge */
+.detail-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-left: 4px;
+}
+
+/* Score colors for consensus scores (1.0 = average) */
+.dtable .cell-fn {
+  color: var(--fn-soft);
+}
+.dtable .cell-zero {
+  color: var(--ink-faint);
+}
+.dtable .cell-fp {
+  color: var(--fp-soft);
+}
+
+/* Column index styling - clickable */
+.col-idx {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.idx-click {
+  cursor: pointer;
+  color: #82abd8;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.idx-click:hover {
+  color: #a9c8e8;
+}
+
+/* Summary stats above the table */
+#tableMeta {
+  display: block;
+  padding: 8px 0;
+  font-size: 14px;
+  color: var(--ink-dim);
+}
+#tableMeta .mono {
+  color: var(--live);
+  font-weight: 700;
 }
