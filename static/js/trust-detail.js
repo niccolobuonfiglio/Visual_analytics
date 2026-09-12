@@ -760,7 +760,7 @@ function updateTrustFilterNote(d){
 }
 
 function refreshTrust(d){
-  renderTrustProjections(d); renderTrustBox(d); renderTrustCompare(d); updateTrustFilterNote(d); updateFilterStatus(d);
+  renderTrustProjections(d); renderTrustBox(d); renderTrustCompare(d); renderUntrust(d); updateTrustFilterNote(d); updateFilterStatus(d);
 }
 
 // wire the trust-panel segmented controls once
@@ -787,7 +787,7 @@ function clearTrustSelection(){
   state.trustSel = null;
   state.pinned = null;
   if(typeof Plotly!=='undefined'){
-    ['trustPca','trustMds'].forEach(id=>{
+    ['trustPca','trustMds','untrustPca','untrustMds'].forEach(id=>{
       const el=$(id); if(!el||!el.data) return;
       // clear Plotly's selection (removes dimming) and the lasso/box outline
       Plotly.restyle(id, {selectedpoints:[null]}, [0]);

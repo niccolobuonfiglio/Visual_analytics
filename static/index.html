@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="css/plots.css">
 <link rel="stylesheet" href="css/chrome.css">
 <link rel="stylesheet" href="css/verdict.css">
+<link rel="stylesheet" href="css/untrust.css">
 <link rel="stylesheet" href="css/trust.css">
 </head>
 <body>
@@ -391,6 +392,50 @@
             </div>
             <div class="hover-readout" id="trustCompareHover">Hover a point to see it highlighted in both plots with its values.</div>
 
+            <!-- LEVEL / EVENNESS SCATTERS -->
+            <section class="flatpanel" data-panel="untrust-plots" style="padding: 18px 0 0 0; border-bottom: none;">
+              <h3 class="panel-title">Level &amp; Evenness</h3>
+              <div class="panel-caption" style="max-width: 100%;">Each point twice over. <strong>Level</strong> is the mean of its four per-point metrics, so it answers &ldquo;how faithful is this point on average?&rdquo;. <strong>Evenness</strong> is 1&nbsp;&minus;&nbsp;(max&nbsp;&minus;&nbsp;min) across those same four, so it answers &ldquo;do the metrics agree about it?&rdquo;. A point is <strong>Untrustworthy</strong> if either reading is red, <strong>Medium</strong> if either is amber, and <strong>Trustworthy</strong> only when both are green &mdash; a high Level with poor Evenness is not a clean point, it is a point whose verdict depends on which metric you ask.</div>
+
+              <div class="ut-controls">
+                <div class="ut-ctl-group">
+                  <span class="ut-ctl-label">Tier</span>
+                  <span class="seg seg-sm" id="utTierSeg">
+                    <button class="seg-btn active" data-ut="all">All</button>
+                    <button class="seg-btn" data-ut="Untrustworthy">Untrustworthy</button>
+                    <button class="seg-btn" data-ut="Medium">Medium</button>
+                    <button class="seg-btn" data-ut="Trustworthy">Trustworthy</button>
+                  </span>
+                </div>
+                <div class="ut-ctl-group">
+                  <span class="ut-ctl-label">Table shows</span>
+                  <span class="seg seg-sm" id="utMethodSeg">
+                    <button class="seg-btn active" data-um="PCA">PCA</button>
+                    <button class="seg-btn" data-um="MDS">MDS</button>
+                  </span>
+                </div>
+              </div>
+
+              <div class="ut-legend">
+                <span class="ut-legend-group"><span class="ut-legend-title">Fill = Level</span><span class="ut-key"><span class="ut-dot ut-dot-fill-red"></span>low</span><span class="ut-key"><span class="ut-dot ut-dot-fill-amber"></span>mid</span><span class="ut-key"><span class="ut-dot ut-dot-fill-green"></span>high</span></span>
+                <span class="ut-legend-group"><span class="ut-legend-title">Ring = Evenness</span><span class="ut-key"><span class="ut-dot ut-dot-ring-red"></span>low</span><span class="ut-key"><span class="ut-dot ut-dot-ring-amber"></span>mid</span><span class="ut-key"><span class="ut-dot ut-dot-ring-green"></span>high</span></span>
+              </div>
+
+              <div class="es-grid es-grid-rel">
+                <div class="plot es-plot" id="untrustPca"></div>
+                <div class="plot es-plot" id="untrustMds"></div>
+              </div>
+              <div class="hover-readout" id="untrustHover">Hover a point for its four metrics, Level, Evenness and tier in both projections; it is ringed in the other plot too.</div>
+
+              <div class="panel-caption" style="max-width: 100%;">Currently visible points, for the method selected above. Click an index to pin it in every plot.<span id="utTableMeta"></span></div>
+              <div class="table-wrap">
+                <table class="dtable" id="utTable">
+                  <thead></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+
             <section class="flatpanel" data-panel="table" style="padding: 18px 0 0 0; border-bottom: none;">
               <h3 class="panel-title" data-info-title="untrustworthy">Untrustworthy Points</h3>
               <div class="panel-caption style="max-width: 100%;">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a statistical fence (Q1&nbsp;&minus;&nbsp;1.5&times;IQR). <span id="tableMeta"></span></div>
@@ -482,6 +527,7 @@
 <script src="js/verdict.js"></script>
 <script src="js/trust.js"></script>
 <script src="js/trust-detail.js"></script>
+<script src="js/untrust.js"></script>
 <script src="js/bootstrap.js"></script>
 </body>
 </html>

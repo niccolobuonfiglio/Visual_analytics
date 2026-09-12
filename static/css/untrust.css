@@ -1,0 +1,63 @@
+/* ======================================================================
+   UNTRUSTWORTHY POINTS: LEVEL / EVENNESS VIEW
+   Controls, legend, tier badges and the band-coloured table cells for the
+   scatter pair that sits above the untrustworthy table.
+   Loaded after verdict.css and before trust.css, so the global overrides
+   at the end of trust.css still win.
+   ====================================================================== */
+
+.ut-controls{
+  display:flex; align-items:center; gap:22px; flex-wrap:wrap;
+  margin:0 0 10px;
+}
+.ut-ctl-group{ display:flex; align-items:center; gap:8px; }
+.ut-ctl-label{
+  font-family:var(--mono); font-size:10px; letter-spacing:0.08em;
+  text-transform:uppercase; color:var(--ink-dim);
+}
+
+/* legend: fill = Level, ring = Evenness */
+.ut-legend{
+  display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  margin:0 0 10px; padding:8px 14px;
+  background:var(--bg-inset); border:1px solid var(--line); border-radius:8px;
+  font-size:11px; color:var(--ink-dim);
+}
+.ut-legend-group{ display:flex; align-items:center; gap:7px; }
+.ut-legend-title{
+  font-family:var(--mono); font-size:10px; letter-spacing:0.06em;
+  text-transform:uppercase; color:var(--ink-dim);
+}
+.ut-key{ display:inline-flex; align-items:center; gap:4px; color:var(--ink); }
+.ut-dot{
+  width:13px; height:13px; border-radius:50%;
+  border:2px solid transparent; display:inline-block;
+}
+.ut-dot-fill-red{   background:#d24b52; }
+.ut-dot-fill-amber{ background:#e0a54b; }
+.ut-dot-fill-green{ background:#4ec97a; }
+.ut-dot-ring-red{   background:var(--bg-inset); border-color:#d24b52; }
+.ut-dot-ring-amber{ background:var(--bg-inset); border-color:#e0a54b; }
+.ut-dot-ring-green{ background:var(--bg-inset); border-color:#4ec97a; }
+
+/* tier badge, used in the hover readout and the Tier column */
+.ut-badge{
+  display:inline-block; padding:1px 7px; border-radius:10px;
+  font-family:var(--mono); font-size:10px; letter-spacing:0.03em;
+  border:1px solid currentColor; white-space:nowrap;
+}
+.ut-badge.ut-red{   color:#e8969b; background:rgba(210,75,82,0.14); }
+.ut-badge.ut-amber{ color:#f0c98a; background:rgba(224,165,75,0.14); }
+.ut-badge.ut-green{ color:#8fdcab; background:rgba(78,201,122,0.14); }
+
+/* band-coloured numeric cells */
+.ut-cell{ font-family:var(--mono); text-align:right; }
+.ut-cell.ut-red{   color:#e8969b; }
+.ut-cell.ut-amber{ color:#f0c98a; }
+.ut-cell.ut-green{ color:#8fdcab; }
+
+/* inline band colouring inside the hover readout */
+strong.ut-red{ color:#e8969b; }
+strong.ut-amber{ color:#f0c98a; }
+strong.ut-green{ color:#8fdcab; }
+.ut-hr-sep{ color:var(--line-bright); margin:0 8px; }

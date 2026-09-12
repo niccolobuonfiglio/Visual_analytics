@@ -95,6 +95,7 @@ function renderTrust(d){
   renderTrustBox(d);
   renderTrustCompare(d);
   renderTrustSelTable(d);
+  renderUntrust(d);
   updateTrustFilterNote(d); 
   updateFilterStatus(d);
 }
@@ -273,9 +274,9 @@ function applyTrustRings(d, idxSet, hover){
   if(pin!=null && !idxList.includes(pin)){ idxList.push(pin); colors.push('#4ec97a'); }
   else if(pin!=null){ colors[idxList.indexOf(pin)] = '#4ec97a'; }
   
-  ['trustPca','trustMds'].forEach(id=>{
+  ['trustPca','trustMds','untrustPca','untrustMds'].forEach(id=>{
     const el=$(id); if(!el||!el.data) return;
-    const xy = id==='trustPca' ? t.pca : t.mds;
+    const xy = id.endsWith('Pca') ? t.pca : t.mds;
     // Find which trace index is the ring trace (should be index 1)
     const ringIdx = 1; // The ring trace is the second trace
     Plotly.restyle(id, { 
