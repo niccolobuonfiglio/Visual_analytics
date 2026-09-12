@@ -1,0 +1,55 @@
+/* ======================================================================
+   DESIGN TOKENS & BASE
+   Custom properties (the whole palette and type scale) plus the element reset.
+   Must load first: every other sheet reads these variables.
+   ====================================================================== */
+
+:root{
+  /* structural slate */
+  --bg:            #0e1116;
+  --bg-panel:      #151a21;
+  --bg-raise:      #1b222c;
+  --bg-inset:      #0b0e13;
+  --line:          #262f3b;
+  --line-bright:   #33404f;
+
+  /* ink */
+  --ink:           #e8edf3;
+  --ink-dim:       #9aa7b6;
+  --ink-faint:     #63707f;
+
+  /* the error scale */
+  --fn:            #d24b52;  
+  --fn-soft:       #e88a8f;
+  --true:          #eef1f4;   
+  --fp:            #3f7cc4;   
+  --fp-soft:       #82abd8;
+
+  /* single functional accent */
+  --live:          #e0a54b;
+  --live-dim:      #8a6a34;
+
+  --font: "Ubuntu", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --console-h: 30px;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+
+html,body{ height:100%; }
+
+body{
+  font-family:var(--sans);
+  background:var(--bg);
+  color:var(--ink);
+  font-size:16px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+
+.app{
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+

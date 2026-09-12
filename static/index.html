@@ -9,7 +9,13 @@
 <link rel="icon" type="image/x-icon" href="plot.ico">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/panels.css">
+<link rel="stylesheet" href="css/plots.css">
+<link rel="stylesheet" href="css/chrome.css">
+<link rel="stylesheet" href="css/verdict.css">
+<link rel="stylesheet" href="css/trust.css">
 </head>
 <body>
 <div class="app">
@@ -414,97 +420,12 @@
           </div>
         </section>
 
-        <section class="flatpanel" data-panel="analysis-data">
-
-          <!-- simulated annealing card -->
-           
-          <div class="an-card" id="anAnnealCard">
-            <div class="an-card-head">
-              <h3 data-info-title="annealing">Neighbourhood search <span class="an-subtle">simulated annealing</span></h3>
-              <span class="an-chip an-chip-quiet" id="anAnnealChip">,</span>
-            </div>
-            <div class="an-why" id="anAnnealWhy">
-              <strong>Why this is needed.</strong> The F1-score as a function of the neighbourhood size <em>k</em> is neither concave nor convex: enlarging <em>k</em> steadily raises recall but lowers precision in a bumpy way, so the combined score has several local peaks. A plain scan is wasteful and gradient methods get stuck, so the toolkit anneals, it accepts occasional worsening moves early on to escape local optima, then cools to refine. Crucially, no projection is recomputed during the search; only the similarity graph is rebuilt, which is what makes it cheap.
-            </div>
-            <div class="an-anneal-stats" id="anAnnealStats"></div>
-            <div class="an-note" id="anAnnealNote"></div>
-          </div>
-
-        <!-- K-MEANS PANEL REMOVED FROM UI (kept for reference):
-          < !-- k-means validation card -- >
-          <div class="an-card" id="anKmeansCard">
-            <div class="an-card-head">
-              <h3 data-info-title="kmeans">Ground-truth check &nbsp;<span class="an-subtle">k-means</span></h3>
-              <span class="an-chip an-chip-quiet" id="anKmeansChip">,</span>
-            </div>
-            <div class="an-why">
-              <strong>Why it matters.</strong> Every supervised score above trusts the class labels. k-means clusters the data with no labels and asks whether those clusters line up with the classes. If they do not, an apparent "projection error" may really be a mismatch between the labels and the data's natural groups, so this check runs before the verdict is trusted.
-            </div>
-            <label class="field inline-field">
-              <span class="field-label">Clusterer
-                <span class="hint">k-means assumes convex clusters; switch if classes may be non-convex</span></span>
-              <select id="clusterMethod" class="inp">
-                <option value="kmeans">k-means (convex)</option>
-                <option value="gmm">Gaussian mixture (elliptical)</option>
-                <option value="spectral">spectral (non-convex)</option>
-              </select>
-            </label>
-            <div class="an-kmeans-body" id="anKmeansBody"></div>
-          </div>
-        -->
-
-          <!-- WEIGHTED-MDS TOGGLE + explanation (always visible) -->
-          <div class="an-card" id="wmdsToggleCard">
-            <div class="an-card-head">
-              <h3 data-info-title="adjdist">Adjusted-distance MDS</h3>
-            </div>
-            <div class="trust-ctl-group" style="margin:8px 0">
-              <span class="trust-ctl-label">Method</span>
-              <span class="seg seg-sm" id="adjMethodSeg">
-                <button class="seg-btn active" data-am="locality">Locality weighting</button>
-                <button class="seg-btn" data-am="mahalanobis">Mahalanobis</button>
-              </span>
-              <button class="info-btn" data-info="adjdist" title="What are these methods?">i</button>
-            </div>
-            <div class="an-why" style="margin-top:8px">
-              <strong>What it does.</strong> Ordinary MDS uses the plain Euclidean distance, so noisy or dominant features drive the layout. An <em>adjusted</em> distance reweights the space so the projection preserves neighbourhoods better. Two label-free methods:
-              <ul class="adj-list">
-                <li><strong>Locality weighting</strong> (default), weights each feature by its <em>Laplacian Score</em>: a feature counts more if it varies little between nearby points (it respects the local manifold), and noisy features that vary randomly are down-weighted. You can hand-tune each feature's weight below.</li>
-                <li><strong>Mahalanobis</strong>, whitens by the inverse covariance <span class="mono">d = &radic;((a&minus;b)&#7488;&Sigma;&#8315;&sup1;(a&minus;b))</span>. Standard, but whitening <em>amplifies</em> low-variance directions, which are often noise, so on these datasets it tends to make F1 <em>worse</em>, which the panel below shows honestly.</li>
-              </ul>
-              <strong>Only the MDS panel changes</strong>; PCA and the trust scores stay on the true geometry. Whether it helps is <strong>measured below</strong> (neighbourhood-F1 and FP/FN rates, plain vs adjusted).
-            </div>
-            <div class="feat-weights" id="featWeights" hidden></div>
-          </div>
-
-           <!-- ADJUSTED-DISTANCE COMPARISON -->
-
-          <!--
-            <div class="an-card wmds-compare" id="wmdsCompare">
-              <div class="wmds-head">
-                <span class="wmds-title" data-info-title="adjdist">Plain vs adjusted MDS</span>
-                <span class="wmds-delta" id="wmdsDelta"> </span>
-              </div>
-              <p class="wmds-note" id="wmdsNote"></p>
-              <div class="es-grid es-grid-rel">
-                <div class="plot es-plot" id="wmdsPlain"></div>
-                <div class="plot es-plot" id="wmdsWeighted"></div>
-                <button class="ghost-btn ghost-btn-sm plot-clear-btn" id="wmdsPlotClear" hidden>Clear selection</button>
-              </div>
-              <div class="hover-readout" id="wmdsHover">Hover a point to see its details; the same point is highlighted in the other layout.</div>
-              <div class="brush-detail" id="wmdsDetail">
-                <div class="brush-detail-head">
-                  <span id="wmdsSelCount">No points selected: drag on either layout to compare where the same points land.</span>
-                  <button class="ghost-btn ghost-btn-sm" id="wmdsSelClear" hidden>Clear</button>
-                </div>
-                <div class="table-wrap table-wrap-sm" id="wmdsSelWrap" hidden>
-                  <table class="dtable" id="wmdsSelTable"><thead></thead><tbody></tbody></table>
-              </div>
-            </div>
-          -->
-          
-          </div>
-        </section>
+        <!-- REMOVED: the "analysis-data" section held two cards whose backends no
+             longer run -- the simulated-annealing neighbourhood search and the
+             adjusted-distance (Locality / Mahalanobis) MDS comparison. The
+             markup is preserved in the git history; the scripts that drove it
+             are in static/legacy/label-structure.js and
+             static/legacy/adjusted-distance.js and are not loaded. -->
 
       </div>
     </main>
@@ -552,6 +473,15 @@
   <div class="toast" id="toast" hidden></div>
 </div>
 
-<script src="app.js"></script>
+<!-- Load order matters: core.js declares the shared state and helpers,
+     bootstrap.js calls init() and must come last. -->
+<script src="js/core.js"></script>
+<script src="js/info.js"></script>
+<script src="js/controls.js"></script>
+<script src="js/render.js"></script>
+<script src="js/verdict.js"></script>
+<script src="js/trust.js"></script>
+<script src="js/trust-detail.js"></script>
+<script src="js/bootstrap.js"></script>
 </body>
 </html>

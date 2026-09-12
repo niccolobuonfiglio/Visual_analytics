@@ -172,7 +172,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dataset", default="wine", choices=list(SKLEARN_LOADERS))
     p.add_argument("--csv", default=None)
     p.add_argument("--label-col", default=None)
-    p.add_argument("--metric", default="intrusion", choices=["intrusion", "classic"])
     p.add_argument("--neighbors", type=int, default=10)
     p.add_argument("--geometric", action="store_true",
                    help="intrusion metric ignores labels (pure neighbour ranks)")
@@ -185,10 +184,6 @@ def parse_args() -> argparse.Namespace:
                    help="squash/transform final errors for display")
     p.add_argument("--norm-scale", type=float, default=3.0,
                    help="steepness for tanh/sigmoid normalization")
-    p.add_argument("--alpha", type=float, default=1.0,
-                   help="classic metric: weight on same-class distance")
-    p.add_argument("--beta", type=float, default=1.0,
-                   help="classic metric: weight on different-class distance")
     p.add_argument("--no-standardize", action="store_true")
     p.add_argument("--max-samples", type=int, default=None,
                    help="stratified subsample cap (MDS is slow on big data)")
@@ -199,10 +194,9 @@ def build(args: argparse.Namespace):
     X, y, target_names, name = load_dataset(args.dataset, args.csv, args.label_col)
     X, y, _ = maybe_subsample(X, y, args.max_samples)
     proj, X_high = build_projections(X, standardize=not args.no_standardize)
-    errors = compute_errors(proj, X_high, y, metric=args.metric,
+    errors = compute_errors(proj, X_high, y,
                             k=args.neighbors, class_aware=not args.geometric,
-                            weight=args.weight, adaptive=args.adaptive,
-                            alpha=args.alpha, beta=args.beta)
+                            weight=args.weight, adaptive=args.adaptive)
     if args.normalize != "none":
         errors = {m: normalize_errors(e, args.normalize, args.norm_scale)
                   for m, e in errors.items()}

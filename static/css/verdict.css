@@ -1,0 +1,269 @@
+/* ======================================================================
+   VERDICT & ANALYSIS CARDS
+   Verdict banner, analysis card shells, component bars, stat cells, the modal,
+   and the smaller readouts beneath them.
+   ====================================================================== */
+
+/* ============================================================
+   VERDICT BANNER, ANALYSIS PANEL, MODAL, VIEW TOGGLE
+   ============================================================ */
+
+/* --- verdict banner (top of results) --- */
+.verdict-banner{
+  display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:12px 16px; margin:0 0 14px;
+  background:linear-gradient(180deg, var(--bg-raise) 0%, var(--bg-panel) 100%);
+  border:1px solid var(--line-bright); border-radius:10px;
+  border-left:4px solid var(--ink-faint);
+}
+.verdict-banner.vb-decisive{ border-left-color:#4ec97a; }
+.verdict-banner.vb-soft{ border-left-color:var(--live); }
+.verdict-banner.vb-tie{ border-left-color:var(--ink-faint); }
+.vb-main{ display:flex; align-items:center; gap:14px; min-width:0; }
+.vb-badge{
+  flex:none; min-width:56px; height:40px; padding:0 12px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono); font-weight:700; font-size:16px; letter-spacing:0.02em;
+  border-radius:8px; background:var(--bg-inset); color:var(--ink);
+  border:1px solid var(--line-bright);
+}
+.vb-decisive .vb-badge{ background:rgba(78,201,122,0.14); color:#7ee0a0; border-color:rgba(78,201,122,0.4); }
+.vb-soft .vb-badge{ background:rgba(224,165,75,0.14); color:var(--live); border-color:rgba(224,165,75,0.4); }
+.vb-headline{ font-size:16px; color:var(--ink); line-height:1.3; }
+.vb-headline strong{ font-weight:700; }
+.vb-sub{ font-size:16px; color:var(--ink-dim); margin-top:2px; line-height:1.35; }
+.vb-examine{
+  flex:none; padding:8px 14px; border-radius:8px; cursor:pointer;
+  background:var(--bg-inset); color:var(--ink); font-family:var(--sans);
+  font-size:16px; font-weight:600; border:1px solid var(--line-bright);
+  transition:background .15s, border-color .15s;
+}
+.vb-examine:hover{ background:var(--bg-raise); border-color:var(--ink-faint); }
+
+/* --- analysis panel cards --- */
+.an-card{
+  background:var(--bg-panel); border:1px solid var(--line);
+  border-radius:10px; padding:16px 18px; margin-bottom:14px;
+}
+.an-card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.an-card-head h3{ font-size:16px; color:var(--ink); font-weight:700; }
+.an-subtle{ font-weight:400; color:var(--ink-faint); font-size:16px; }
+.an-chip{
+  font-family:var(--mono); font-size:16px; padding:3px 9px; border-radius:20px;
+  background:var(--bg-inset); color:var(--ink-dim); border:1px solid var(--line-bright);
+}
+.an-chip-good{ background:rgba(78,201,122,0.13); color:#7ee0a0; border-color:rgba(78,201,122,0.36); }
+.an-chip-warn{ background:rgba(224,165,75,0.13); color:var(--live); border-color:rgba(224,165,75,0.36); }
+.an-chip-quiet{ opacity:0.85; }
+.an-verdict{ border-color:var(--line-bright); }
+.an-verdict-sentence{ font-size:16px; color:var(--ink); line-height:1.5; }
+.an-verdict-components h4, .an-metrics-perclass h4, .an-kmeans-body h4{
+  font-size:16px; text-transform:uppercase; letter-spacing:0.06em;
+  color:var(--ink-faint); margin:14px 0 7px;
+}
+.an-why{
+  font-size:16px; color:var(--ink-dim); line-height:1.5; margin-bottom:12px;
+  padding:10px 12px; background:var(--bg-inset); border-radius:8px;
+  border-left:2px solid var(--line-bright);
+}
+.an-why strong{ color:var(--ink); }
+.an-note{ font-size:16px; color:var(--ink-dim); line-height:1.45; margin-top:10px; }
+.an-note strong{ color:var(--ink); }
+.an-muted{ color:var(--ink-faint); font-size:16px; font-style:italic; }
+
+/* component table (verdict + per-class) */
+.an-comp-table{ width:100%; border-collapse:collapse; font-size:16px; }
+.an-comp-table th{
+  text-align:center; font-family:var(--mono); font-size:16px; font-weight:400;
+  color:var(--ink-faint); padding:4px 8px; border-bottom:1px solid var(--line);
+  text-transform:capitalize;
+}
+.an-comp-table th:first-child, .an-comp-table td:first-child{ text-align:left; }
+.an-comp-table td{ text-align:center; padding:5px 8px; color:var(--ink-dim);
+  border-bottom:1px solid rgba(38,47,59,0.5); font-family:var(--mono); }
+.an-comp-name{ color:var(--ink) !important; font-family:var(--sans) !important; }
+.an-best{ color:#7ee0a0 !important; font-weight:700; }
+.an-comp-lead{ color:var(--ink-faint) !important; font-size:16px; }
+.an-weights{ font-size:16px; color:var(--ink-faint); font-family:var(--mono);
+  margin-top:8px; padding-top:6px; }
+
+/* stat cells */
+.an-stat-row{ display:flex; flex-wrap:wrap; gap:10px; margin:8px 0; }
+.an-anneal-stats{ display:flex; flex-wrap:wrap; gap:10px; margin:12px 0; }
+.an-stat{
+  flex:1 1 auto; min-width:90px; padding:10px 12px; border-radius:8px;
+  background:var(--bg-inset); border:1px solid var(--line);
+  display:flex; flex-direction:column; gap:3px;
+}
+.an-stat-v{ font-family:var(--mono); font-size:16px; color:var(--ink); font-weight:700; }
+.an-stat-l{ font-size:16px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.04em; }
+
+/* big stats for metrics */
+.an-metrics-grid{ display:flex; gap:12px; flex-wrap:wrap; }
+.an-bigstat{
+  flex:1 1 140px; padding:14px; border-radius:9px; text-align:center;
+  background:var(--bg-inset); border:1px solid var(--line);
+}
+.an-bigstat-hero{ border-color:rgba(78,201,122,0.4); background:rgba(78,201,122,0.07); }
+.an-bigstat-v{ font-family:var(--mono); font-size:28px; font-weight:700; color:var(--ink); }
+.an-bigstat-hero .an-bigstat-v{ color:#7ee0a0; }
+.an-bigstat-l{ font-size:16px; color:var(--ink); font-weight:600; margin-top:2px; }
+.an-bigstat-s{ font-size:16px; color:var(--ink-faint); margin-top:3px; line-height:1.3; }
+
+.an-plot{ width:100%; height:260px; margin-top:6px; }
+.an-kmeans-say{ font-size:16px; line-height:1.5; margin:10px 0; padding:9px 12px; border-radius:8px; }
+.an-say-good{ background:rgba(78,201,122,0.09); color:#a9e5c1; border:1px solid rgba(78,201,122,0.25); }
+.an-say-warn{ background:rgba(224,165,75,0.09); color:#f0c98a; border:1px solid rgba(224,165,75,0.25); }
+.an-say-good strong, .an-say-warn strong{ color:var(--ink); }
+
+/* --- view toggle above the error-space plots --- */
+.es-viewbar{
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:9px 12px; margin-bottom:10px;
+  background:var(--bg-inset); border:1px solid var(--line); border-radius:8px;
+}
+.es-viewbar-label{ font-size:16px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); }
+.es-viewbar-hint{ font-size:16px; color:var(--ink-dim); font-style:italic; flex:1 1 200px; }
+.seg-view{ display:inline-flex; }
+.seg-view .seg-btn{ padding:5px 12px; font-size:16px; }
+
+/* --- modal --- */
+.modal-overlay{
+  position:fixed; inset:0; z-index:1000;
+  background:rgba(6,9,13,0.72); backdrop-filter:blur(3px);
+  display:flex; align-items:center; justify-content:center; padding:24px;
+}
+.modal-overlay[hidden]{ display:none; }
+.modal{
+  width:min(680px, 96vw); max-height:88vh; overflow-y:auto;
+  background:var(--bg-panel); border:1px solid var(--line-bright);
+  border-radius:12px; box-shadow:0 24px 64px rgba(0,0,0,0.5);
+}
+.modal-head{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 20px; border-bottom:1px solid var(--line);
+  position:sticky; top:0; background:var(--bg-panel); z-index:1;
+}
+.modal-head h2{ font-size:16px; color:var(--ink); font-weight:700; }
+.modal-close{
+  width:30px; height:30px; border-radius:7px; cursor:pointer;
+  background:var(--bg-inset); border:1px solid var(--line-bright);
+  color:var(--ink-dim); font-size:16px;
+}
+.modal-close:hover{ color:var(--ink); border-color:var(--ink-faint); }
+.modal-body{ padding:18px 20px; }
+.modal-foot{
+  display:flex; gap:10px; justify-content:flex-end;
+  padding:14px 20px; border-top:1px solid var(--line);
+}
+.vm-headline{
+  font-size:16px; line-height:1.5; color:var(--ink); padding:12px 14px;
+  border-radius:8px; background:var(--bg-inset); margin-bottom:6px;
+  border-left:3px solid var(--ink-faint);
+}
+.vm-good{ border-left-color:#4ec97a; }
+.vm-soft{ border-left-color:var(--live); }
+.vm-tie{ border-left-color:var(--ink-faint); }
+.run-btn-sm{ padding:8px 16px; font-size:16px; width:auto; }
+
+/* control-group note */
+.ctl-note{ font-size:16px; color:var(--ink-faint); line-height:1.45; margin-top:8px; }
+.ctl-note strong{ color:var(--ink-dim); }
+
+/* Data & Labels banner: same shape as the verdict banner, distinct accent */
+.labels-banner{ margin-top:8px; }
+.labels-banner .vb-badge{ font-size:16px; letter-spacing:0.04em; }
+
+/* near-zero selector: distinct neutral styling from the sign quadrants */
+.es-quad-nearzero{ border-style:dashed; }
+.es-quad-nearzero .es-quad-key{ color:var(--ink-dim); }
+
+/* Weighted-MDS comparison panel */
+.wmds-compare{
+  margin:0 0 16px; padding:14px 16px; border-radius:10px;
+  background:var(--bg-panel); border:1px solid var(--line-bright);
+}
+.wmds-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.wmds-title{ font-size:16px; font-weight:700; color:var(--ink); }
+.wmds-delta{ font-family:var(--mono); font-size:16px; padding:3px 10px; border-radius:20px;
+  background:var(--bg-inset); border:1px solid var(--line-bright); color:var(--ink-dim); }
+.wmds-up{ background:rgba(78,201,122,0.13); color:#7ee0a0; border-color:rgba(78,201,122,0.36); }
+.wmds-down{ background:rgba(224,165,75,0.13); color:var(--live); border-color:rgba(224,165,75,0.36); }
+.wmds-note{ font-size:16px; color:var(--ink-dim); line-height:1.45; margin-bottom:10px; }
+.wmds-note strong{ color:var(--ink); }
+
+/* parameter-degeneracy warnings under the stat bar */
+#runWarnings{ margin:10px 0 0; display:flex; flex-direction:column; gap:6px; }
+.run-warn{ display:flex; align-items:flex-start; gap:9px; padding:9px 12px;
+  border-radius:8px; font-size:16px; line-height:1.4; }
+.run-warn-warning{ background:rgba(224,165,75,0.10); border:1px solid rgba(224,165,75,0.32); color:#f0c98a; }
+.run-warn-error{ background:rgba(210,75,82,0.12); border:1px solid rgba(210,75,82,0.4); color:#e8969b; }
+.run-warn-icon{ font-size:16px; flex:none; }
+
+/* feature-weight bar chart in the weighted-MDS comparison */
+.wmds-weights-wrap{ margin-top:10px; }
+.wmds-weights-label{ font-size:16px; color:var(--ink-dim); margin-bottom:4px; }
+/* near-zero selector: emphasise when balanced-severe points are present */
+.es-quad-nearzero.es-quad-warn{ border-color:rgba(224,165,75,0.5); }
+
+/* adaptive-k distribution panel */
+.adaptk-panel{ margin:14px 0 0; padding:12px 14px; border-radius:10px;
+  background:var(--bg-panel); border:1px solid var(--line); }
+.adaptk-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.adaptk-title{ font-size:16px; font-weight:700; color:var(--ink); }
+.adaptk-meta{ font-family:var(--mono); font-size:16px; color:var(--ink-dim); }
+.adaptk-note{ font-size:16px; color:var(--ink-dim); line-height:1.4; margin-top:6px; }
+.adaptk-note strong{ color:var(--ink); }
+
+/* verdict weight sliders */
+.wtsliders{ margin-top:14px; padding:12px 14px; border-radius:9px;
+  background:var(--bg-inset); border:1px solid var(--line); }
+.wt-row{ display:flex; align-items:center; gap:10px; margin:6px 0; }
+.wt-name{ font-size:16px; color:var(--ink-dim); width:78px; text-transform:capitalize; }
+.wt-slider{ flex:1; margin-left: 10px;}
+.wt-val{ font-family:var(--mono); font-size:16px; color:var(--ink); width:34px; text-align:right; }
+.wt-live{ font-size:16px; color:var(--ink-dim); line-height:1.5; margin-top:8px;
+  padding-top:8px; border-top:1px solid var(--line); }
+.wt-live strong{ color:var(--ink); }
+.wt-flip{ color:var(--live); font-weight:600; }
+.wt-same{ color:#7ee0a0; }
+.wt-live .ghost-btn-sm{ margin-left:8px; }
+
+/* per-class radar grid */
+.radar-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px; }
+.radar-cell{ background:var(--bg-inset); border:1px solid var(--line); border-radius:8px; padding:4px; }
+.radar-cell-title{ font-size:16px; color:var(--ink-dim); text-align:center; padding:3px 0 0; font-family:var(--mono); }
+.radar-cell-plot{ width:100%; }
+
+/* macro / micro F1 explanation */
+.macro-micro{ background:var(--bg-inset); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+.mm-row{ display:flex; align-items:baseline; gap:10px; margin:4px 0; }
+.mm-tag{ font-family:var(--mono); font-size:16px; font-weight:700; padding:2px 7px; border-radius:5px; white-space:nowrap; flex:none; }
+.mm-macro{ background:rgba(78,201,122,0.14); color:#7ee0a0; }
+.mm-micro{ background:rgba(63,124,196,0.16); color:#82abd8; }
+.mm-desc{ font-size:16px; color:var(--ink-dim); line-height:1.4; }
+.mm-desc em{ color:var(--ink); font-style:normal; font-weight:600; }
+.mm-gap{ font-size:16px; color:var(--ink-dim); margin-top:6px; padding-top:6px; border-top:1px solid var(--line); line-height:1.45; }
+.mm-gap strong{ color:var(--ink); }
+
+/* cluster purity / class coverage */
+.purity-head{ font-size:16px; color:var(--ink-dim); margin:10px 0 8px; }
+.purity-head strong{ color:#7ee0a0; }
+.purity-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.purity-col-t{ font-size:16px; color:var(--ink-faint); margin-bottom:5px; line-height:1.3; }
+.pcell{ display:inline-flex; align-items:center; gap:6px; margin:2px 4px 2px 0; padding:3px 8px; border-radius:5px; font-size:16px; background:var(--bg-panel); border:1px solid var(--line); }
+.pcell-l{ color:var(--ink-dim); }
+.pcell-v{ font-family:var(--mono); font-weight:700; }
+.pcell-good .pcell-v{ color:#7ee0a0; }
+.pcell-mid .pcell-v{ color:var(--live); }
+.pcell-bad .pcell-v{ color:var(--fn); }
+
+/* annealing search-health diagnostics */
+.diag-box{ margin-top:10px; padding:9px 12px; background:var(--bg-inset); border:1px solid var(--line); border-radius:8px; }
+.diag-title{ font-size:16px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint); margin-bottom:5px; }
+.diag-list{ list-style:none; margin:0; padding:0; }
+.diag-list li{ font-size:16px; line-height:1.5; padding:1px 0; }
+.diag-good{ color:#9ce0b4; }
+.diag-warn{ color:#f0c98a; }
+.diag-bad{ color:#e8969b; }
+

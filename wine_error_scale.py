@@ -83,9 +83,6 @@ def parse_args() -> argparse.Namespace:
                    help="built-in sklearn dataset (default: wine)")
     p.add_argument("--csv", default=None, help="path to a CSV instead of a built-in set")
     p.add_argument("--label-col", default=None, help="label column name (with --csv)")
-    p.add_argument("--metric", default="intrusion", choices=["intrusion", "classic"],
-                   help="'intrusion' = FP-FN intrusion/extrusion (uses high-D); "
-                        "'classic' = old 2D-only class-compactness score")
     p.add_argument("--neighbors", type=int, default=10,
                    help="neighbourhood size k for the intrusion metric")
     p.add_argument("--geometric", action="store_true",
@@ -99,10 +96,6 @@ def parse_args() -> argparse.Namespace:
                    help="squash/transform final errors for display")
     p.add_argument("--norm-scale", type=float, default=3.0,
                    help="steepness for tanh/sigmoid normalization")
-    p.add_argument("--alpha", type=float, default=1.0,
-                   help="classic metric: weight on same-class distance")
-    p.add_argument("--beta", type=float, default=1.0,
-                   help="classic metric: weight on different-class distance")
     p.add_argument("--no-standardize", action="store_true",
                    help="skip StandardScaler (default: standardize)")
     p.add_argument("--max-samples", type=int, default=None,
@@ -131,9 +124,9 @@ def main() -> None:
 
     # compute errors + FP/FN parts for asymmetric reporting
     errs, fps, fns = compute_errors(
-        proj, X_high, y, metric=args.metric, k=args.neighbors,
+        proj, X_high, y, k=args.neighbors,
         class_aware=class_aware, weight=args.weight, adaptive=args.adaptive,
-        alpha=args.alpha, beta=args.beta, return_parts=True)
+        return_parts=True)
 
     # optional display normalization (applied to net error only)
     if args.normalize != "none":
@@ -145,12 +138,9 @@ def main() -> None:
     print("First 5 MDS errors:", np.round(mds_err[:5], 3))
 
     # filename tag + colour scale
-    fname = build_fname_tag(name, args.metric, args.neighbors, args.geometric,
+    fname = build_fname_tag(name, "intrusion", args.neighbors, args.geometric,
                             adaptive=args.adaptive, normalize=args.normalize)
-    if args.metric == "classic" and args.normalize == "none":
-        vmax = 1.0
-    else:
-        vmax = nice_vmax(pca_err, mds_err)
+    vmax = nice_vmax(pca_err, mds_err)
 
     plot_projections(pca_2d, pca_err, mds_2d, mds_err, name, outdir, fname, vmax)
     plot_error_comparison(pca_err, mds_err, y, target_names, name, outdir,
