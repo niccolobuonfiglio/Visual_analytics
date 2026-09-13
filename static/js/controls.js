@@ -39,18 +39,23 @@ function bindControls(){
   echo('threshold','threshEcho',(v)=>parseFloat(v).toFixed(2));
   echo('untrustFloor','floorEcho',(v)=>parseFloat(v).toFixed(2));
 
-  // CSV upload
-  /*
-  $('csvFile').addEventListener('change', handleCsvUpload);
-  const csvLabel = $('csvLabel');
-  ['dragover','dragenter'].forEach(ev=>csvLabel.addEventListener(ev,(e)=>{e.preventDefault(); csvLabel.classList.add('loaded');}));
-  ['dragleave','drop'].forEach(ev=>csvLabel.addEventListener(ev,(e)=>{e.preventDefault();}));
-  csvLabel.addEventListener('drop',(e)=>{
-    e.preventDefault();
-    const f = e.dataTransfer.files[0];
-    if(f){ $('csvFile').files = e.dataTransfer.files; handleCsvUpload(); }
-  });
-  */
+  // CSV upload: click the zone or drop a file on it
+  const csvInput = $('csvFile'), csvLabel = $('csvLabel');
+  if(csvInput && csvLabel){
+    csvInput.addEventListener('change', handleCsvUpload);
+    ['dragover','dragenter'].forEach(ev=>csvLabel.addEventListener(ev,(e)=>{
+      e.preventDefault(); csvLabel.classList.add('drop-target'); }));
+    ['dragleave','dragend'].forEach(ev=>csvLabel.addEventListener(ev,(e)=>{
+      e.preventDefault(); csvLabel.classList.remove('drop-target'); }));
+    csvLabel.addEventListener('drop',(e)=>{
+      e.preventDefault();
+      csvLabel.classList.remove('drop-target');
+      const f = e.dataTransfer.files[0];
+      if(f){ csvInput.files = e.dataTransfer.files; handleCsvUpload(); }
+    });
+  }
+  const csvClear = $('csvClear');
+  if(csvClear) csvClear.addEventListener('click', clearCsv);
 
   // run
   $('runBtn').addEventListener('click', runAnalysis);
@@ -64,27 +69,63 @@ function bindControls(){
   });
 }
 
-/*
-let csvState = { path:null, labelCol:null };
+/* An uploaded CSV takes priority over the Dataset dropdown until it is
+   cleared. The backend keeps the file and returns its column names so the
+   label column can be picked here; every other column that is numeric becomes
+   a feature. */
+const CSV_PROMPT = 'or drop a CSV here';
+let csvState = { path:null, name:null };
+
 async function handleCsvUpload(){
-  const f = $('csvFile').files[0]; if(!f) return;
+  const input = $('csvFile');
+  const f = input && input.files[0];
+  if(!f) return;
   const fd = new FormData(); fd.append('file', f);
-  $('csvText').textContent = 'uploading…';
+  $('csvText').textContent = 'uploading\u2026';
   try{
-    const r = await fetch('/api/upload',{ method:'POST', body:fd });
+    const r = await fetch('/api/upload', { method:'POST', body:fd });
     const d = await r.json();
-    if(!d.ok){ toast(d.error||'upload failed', true); $('csvText').textContent='or drop a CSV…'; return; }
+    if(!d.ok){
+      toast(d.error || 'upload failed', true);
+      $('csvText').textContent = CSV_PROMPT;
+      return;
+    }
     csvState.path = d.path;
+    csvState.name = f.name;
     $('csvLabel').classList.add('loaded');
     $('csvText').textContent = f.name;
-    // populate label column picker
-    const lc = $('labelCol'); lc.innerHTML='';
-    d.columns.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; lc.appendChild(o); });
+
+    const lc = $('labelCol');
+    lc.innerHTML = '';
+    d.columns.forEach(c=>{
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c; lc.appendChild(o);
+    });
+    // Best guess: a column actually called "label"/"class"/"target"/"species".
+    const guess = d.columns.find(c=>/^(label|class|target|species|y)$/i.test(c));
+    if(guess) lc.value = guess;
+
     $('labelColField').hidden = false;
-    toast('CSV loaded, pick a label column');
-  }catch(e){ toast('upload error', true); }
+    $('csvClear').hidden = false;
+    $('dataset').disabled = true;
+    toast(guess ? `CSV loaded, label column "${guess}" \u2014 change it if wrong`
+                : 'CSV loaded, pick a label column');
+  }catch(e){
+    toast('upload error', true);
+    $('csvText').textContent = CSV_PROMPT;
+  }
 }
-*/
+
+/* Drop the uploaded file and go back to the built-in datasets. */
+function clearCsv(){
+  csvState = { path:null, name:null };
+  const input = $('csvFile'); if(input) input.value = '';
+  $('csvLabel').classList.remove('loaded');
+  $('csvText').textContent = CSV_PROMPT;
+  $('labelColField').hidden = true;
+  $('csvClear').hidden = true;
+  $('dataset').disabled = false;
+}
 
 /* collect params from the form */
 function collectParams(){
@@ -101,7 +142,7 @@ function collectParams(){
   };
   const ms = $('maxSamples').value;
   if(ms) p.max_samples = parseInt(ms);
-  // if(csvState.path){ p.csv_path = csvState.path; p.label_col = $('labelCol').value; }
+  if(csvState.path){ p.csv_path = csvState.path; p.label_col = $('labelCol').value; }
   return p;
 }
 
@@ -219,6 +260,22 @@ async function restoreLast(){
 }
 
 function applyParamsToForm(p){
+  // A stored run may have come from an uploaded CSV; re-establish that state so
+  // pressing Run again reproduces it instead of silently reverting to Wine.
+  if(p && p.csv_path){
+    csvState = { path:p.csv_path, name:p.csv_path.split('/').pop() };
+    $('csvLabel').classList.add('loaded');
+    $('csvText').textContent = csvState.name;
+    const lc = $('labelCol');
+    if(p.label_col && !lc.querySelector(`option[value="${p.label_col}"]`)){
+      const o = document.createElement('option');
+      o.value = p.label_col; o.textContent = p.label_col; lc.appendChild(o);
+    }
+    if(p.label_col) lc.value = p.label_col;
+    $('labelColField').hidden = false;
+    $('csvClear').hidden = false;
+    $('dataset').disabled = true;
+  }
   if(!p) return;
   $('dataset').value = p.dataset || 'wine';
   state.metric = 'intrusion';

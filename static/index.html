@@ -47,6 +47,15 @@
             <span class="field-label">Dataset</span>
             <select id="dataset" class="inp"></select>
           </label>
+          <div class="csv-zone">
+            <input type="file" id="csvFile" accept=".csv,text/csv" hidden>
+            <label class="csv-upload" for="csvFile" id="csvLabel"><span id="csvText">or drop a CSV here</span></label>
+            <label class="field field-inline" id="labelColField" hidden>
+              <span class="field-label">Label column</span>
+              <select id="labelCol" class="inp"></select>
+            </label>
+            <button class="ghost-btn ghost-btn-sm" id="csvClear" hidden>Use a built-in dataset</button>
+          </div>
           <label class="field">
             <span class="field-label">Max samples </span>
             <input type="number" id="maxSamples" class="inp" placeholder="all" min="10" step="10">
@@ -407,13 +416,6 @@
                     <button class="seg-btn" data-ut="Trustworthy">Trustworthy</button>
                   </span>
                 </div>
-                <div class="ut-ctl-group">
-                  <span class="ut-ctl-label">Table shows</span>
-                  <span class="seg seg-sm" id="utMethodSeg">
-                    <button class="seg-btn active" data-um="PCA">PCA</button>
-                    <button class="seg-btn" data-um="MDS">MDS</button>
-                  </span>
-                </div>
               </div>
 
               <div class="ut-legend">
@@ -427,7 +429,7 @@
               </div>
               <div class="hover-readout" id="untrustHover">Hover a point for its four metrics, Level, Evenness and tier in both projections; it is ringed in the other plot too.</div>
 
-              <div class="panel-caption" style="max-width: 100%;">Currently visible points, for the method selected above. Click an index to pin it in every plot.<span id="utTableMeta"></span></div>
+              <div class="panel-caption" style="max-width: 100%;">Every currently visible point, both projections in one table. <strong>Tier</strong> is the worse of the two. Click an index to pin the point in every plot and open its four per-metric scores in the readout above.<span id="utTableMeta"></span></div>
               <div class="table-wrap">
                 <table class="dtable" id="utTable">
                   <thead></thead>

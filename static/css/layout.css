@@ -262,6 +262,11 @@ select.inp{
   transition:all .15s;
 }
 .csv-upload:hover{ border-color:var(--live-dim); color:var(--ink-dim); }
+.csv-upload.drop-target{
+  border-color:var(--live); color:var(--live);
+  background:rgba(78,201,122,0.06);
+}
+#dataset:disabled{ opacity:0.45; cursor:not-allowed; }
 .csv-upload.loaded{
   border-style:solid;
   border-color:var(--live-dim);
@@ -405,4 +410,3 @@ select.inp{
   color: var(--fn-soft);
   border-color: var(--fn);
 }
-

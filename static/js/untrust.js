@@ -122,6 +122,24 @@ function utVisible(d, method){
   return out.sort((a,b)=>a-b);
 }
 
+/* Rows for the single table: a point appears if it is visible in EITHER plot,
+   so the table is the union of what the two projections are showing. */
+function utVisibleAny(d){
+  const st = utStats(d);
+  const want = state.untrustTier;
+  const out = [];
+  trustActiveSet(d).forEach(i=>{
+    if(want==='all' || st.PCA.tier[i]===want || st.MDS.tier[i]===want) out.push(i);
+  });
+  return out.sort((a,b)=>a-b);
+}
+
+/* Which projections call this point untrustworthy: 'PCA', 'MDS', 'both', or '--'. */
+function utFlaggedIn(st, i){
+  const p = st.PCA.tier[i]==='Untrustworthy', m = st.MDS.tier[i]==='Untrustworthy';
+  return p && m ? 'both' : p ? 'PCA' : m ? 'MDS' : '--';
+}
+
 /* ------------------------------------------------------------------
    The two scatters
    ------------------------------------------------------------------ */
@@ -179,35 +197,18 @@ function renderUntrustPlots(d){
   const onHover = (ev)=>{
     if(!ev||!ev.points||!ev.points.length) return;
     const p = ev.points.find(pt=>pt.curveNumber===0); if(!p) return;
-    const i = p.pointIndex;
     const ringSet = new Set(state.trustSel || new Set());
-    ringSet.add(i);
+    ringSet.add(p.pointIndex);
     applyTrustRings(state.result, ringSet, /*hover*/true);
-
-    const ro = $('untrustHover'), r = state.result;
-    if(!ro || !r) return;
-    const s = utStats(r), tt = r.table, nmr = r.neighbor_metrics;
-    const f = (v)=>v.toFixed(3);
-    const row = (m)=>{
-      const mm = s[m];
-      const metrics = METRIC_KEYS.map(k=>
-        `${METRIC_LABELS[k]||k} <strong>${f(nmr[m][k][i])}</strong>`).join(', ');
-      return `<span class="hr-row"><span class="hr-m">${m}</span> ${metrics}`+
-             `<span class="ut-hr-sep">|</span>`+
-             `Level <strong class="ut-${mm.levelBand[i]}">${f(mm.level[i])}</strong>, `+
-             `Evenness <strong class="ut-${mm.evenBand[i]}">${f(mm.even[i])}</strong> `+
-             `<span class="ut-badge ut-${UT_TIER_BAND[mm.tier[i]]}">${mm.tier[i]}</span></span>`;
-    };
-    ro.innerHTML =
-      `<span class="hr-idx">idx ${tt.ids[i]}</span> `+
-      `<span class="class-chip" style="background:${classColor(tt.labels[i])}"></span>`+
-      `${tt.class_names[i]}` + row('PCA') + row('MDS');
+    utShowPoint(p.pointIndex);
   };
 
   const onUnhover = ()=>{
     applyTrustRings(state.result, state.trustSel || new Set());
-    const ro=$('untrustHover');
-    if(ro) ro.innerHTML = UT_HOVER_HINT;
+    // Fall back to the pinned point rather than the hint, so a point opened by
+    // clicking its index in the table stays on screen.
+    if(state.pinned != null) utShowPoint(state.pinned);
+    else { const ro=$('untrustHover'); if(ro) ro.innerHTML = UT_HOVER_HINT; }
   };
 
   const onSel = (ev)=>{
@@ -236,51 +237,83 @@ function renderUntrustPlots(d){
   });
 }
 
-const UT_HOVER_HINT = 'Hover a point for its four metrics, Level, Evenness and '+
-  'tier in both projections; it is ringed in the other plot too.';
+/* Write one point's full breakdown into the readout above the plots: its four
+   raw metrics, Level, Evenness and tier, for BOTH projections. This is the only
+   place per-metric numbers are shown -- the table no longer carries them. */
+function utShowPoint(i){
+  const ro = $('untrustHover'), r = state.result;
+  if(!ro || !r || i == null) return;
+  const s = utStats(r), tt = r.table, nmr = r.neighbor_metrics;
+  const f = (v)=>v.toFixed(3);
+  const row = (m)=>{
+    const mm = s[m];
+    const metrics = METRIC_KEYS.map(k=>
+      `${METRIC_LABELS[k]||k} <strong>${f(nmr[m][k][i])}</strong>`).join(', ');
+    return `<span class="hr-row"><span class="hr-m">${m}</span> ${metrics}`+
+           `<span class="ut-hr-sep">|</span>`+
+           `Level <strong class="ut-${mm.levelBand[i]}">${f(mm.level[i])}</strong>, `+
+           `Evenness <strong class="ut-${mm.evenBand[i]}">${f(mm.even[i])}</strong> `+
+           `<span class="ut-badge ut-${UT_TIER_BAND[mm.tier[i]]}">${mm.tier[i]}</span></span>`;
+  };
+  ro.innerHTML =
+    `<span class="hr-idx">idx ${tt.ids[i]}</span> `+
+    `<span class="class-chip" style="background:${classColor(tt.labels[i])}"></span>`+
+    `${tt.class_names[i]}`+
+    (state.pinned===i ? ' <span class="ut-pin-tag">pinned</span>' : '')+
+    row('PCA') + row('MDS');
+}
+
+const UT_HOVER_HINT = 'Hover a point, or click an index in the table below, to '+
+  'see its four metrics, Level, Evenness and tier in both projections.';
 
 /* ------------------------------------------------------------------
    The table: whatever is currently visible, for the selected method
    ------------------------------------------------------------------ */
 const UT_TABLE_COLS = [
-  { key:'index',  label:'index' },
-  { key:'cls',    label:'class', cls:'col-class' },
-  { key:'level',  label:'Level', score:true },
-  { key:'even',   label:'Evenness', score:true },
-  { key:'tier',   label:'Tier', tier:true },
-  { key:'f1',            label:'neighbour F1', score:true },
-  { key:'js_fidelity',   label:'JS fidelity', score:true },
-  { key:'localstress',   label:'local stress', score:true },
-  { key:'normstress',    label:'norm. stress', score:true },
+  { key:'index',     label:'index' },
+  { key:'cls',       label:'class', cls:'col-class' },
+  { key:'pcaLevel',  label:'PCA Level', band:'pcaLevelBand' },
+  { key:'pcaEven',   label:'PCA Evenness', band:'pcaEvenBand' },
+  { key:'mdsLevel',  label:'MDS Level', band:'mdsLevelBand' },
+  { key:'mdsEven',   label:'MDS Evenness', band:'mdsEvenBand' },
+  { key:'tier',      label:'Tier', tier:true },
+  { key:'flagged',   label:'untrustworthy in', flag:true },
 ];
+
+const UT_TIER_RANK = { Untrustworthy:0, Medium:1, Trustworthy:2 };
 
 function renderUntrustTable(d){
   const table = $('utTable'); if(!table) return;
-  const m = state.untrustMethod;
-  const s = utStats(d)[m], t = d.table, nm = d.neighbor_metrics;
-  const vis = utVisible(d, m);
+  const st = utStats(d), t = d.table;
+  const vis = utVisibleAny(d);
 
   const meta = $('utTableMeta');
   if(meta){
-    const tierTxt = state.untrustTier==='all' ? 'all tiers' : state.untrustTier.toLowerCase();
+    const tierTxt = state.untrustTier==='all'
+      ? 'all tiers' : `tier ${state.untrustTier.toLowerCase()}`;
     meta.innerHTML = vis.length
-      ? `<span class="mono">${vis.length}</span> visible ${m} point(s), ${tierTxt}.`
-      : `No ${m} points match the current tier and filters.`;
+      ? `<span class="mono">${vis.length}</span> visible point(s), ${tierTxt}.`
+      : 'No points match the current tier and filters.';
   }
 
-  const rows = vis.map(i=>{
-    const r = { i, index:t.ids[i], cls:t.class_names[i], code:t.labels[i],
-                level:s.level[i], even:s.even[i], tier:s.tier[i],
-                levelBand:s.levelBand[i], evenBand:s.evenBand[i] };
-    METRIC_KEYS.forEach(k=> r[k] = nm[m][k][i]);
-    return r;
-  });
+  const rows = vis.map(i=>({
+    i, index:t.ids[i], cls:t.class_names[i], code:t.labels[i],
+    pcaLevel:st.PCA.level[i], pcaEven:st.PCA.even[i],
+    mdsLevel:st.MDS.level[i], mdsEven:st.MDS.even[i],
+    pcaLevelBand:st.PCA.levelBand[i], pcaEvenBand:st.PCA.evenBand[i],
+    mdsLevelBand:st.MDS.levelBand[i], mdsEvenBand:st.MDS.evenBand[i],
+    // the row's overall verdict is the worse of the two projections
+    tier: UT_TIER_RANK[st.PCA.tier[i]] <= UT_TIER_RANK[st.MDS.tier[i]]
+            ? st.PCA.tier[i] : st.MDS.tier[i],
+    flagged: utFlaggedIn(st, i),
+  }));
 
   const { key, dir } = state.untrustSort;
-  const tierRank = { Untrustworthy:0, Medium:1, Trustworthy:2 };
+  const flagRank = { both:0, PCA:1, MDS:2, '--':3 };
   rows.sort((a,b)=>{
     let av=a[key], bv=b[key];
-    if(key==='tier'){ av=tierRank[av]; bv=tierRank[bv]; }
+    if(key==='tier'){ av=UT_TIER_RANK[av]; bv=UT_TIER_RANK[bv]; }
+    else if(key==='flagged'){ av=flagRank[av]; bv=flagRank[bv]; }
     if(typeof av==='string') return dir*av.localeCompare(bv);
     return dir*(av-bv);
   });
@@ -300,14 +333,13 @@ function renderUntrustTable(d){
       return `<td class="col-class"><span class="class-chip" style="background:${classColor(r.code)}"></span>${v}</td>`;
     if(c.tier)
       return `<td><span class="ut-badge ut-${UT_TIER_BAND[v]}">${v}</span></td>`;
-    if(c.score){
-      // Level and Evenness carry their own band; the raw metrics reuse the
-      // existing score-cell shading so they read the same as every other table.
-      const band = c.key==='level' ? r.levelBand
-                 : c.key==='even'  ? r.evenBand
-                 : utBand(v, UT_LEVEL_CUTS);
-      return `<td class="ut-cell ut-${band}">${v.toFixed(3)}</td>`;
+    if(c.flag){
+      if(v==='--') return '<td class="ut-flag-none">--</td>';
+      const cls = v==='both' ? 'out-both' : v==='PCA' ? 'out-pca' : 'out-mds';
+      return `<td><span class="out-badge ${cls}">${v}</span></td>`;
     }
+    if(c.band)
+      return `<td class="ut-cell ut-${r[c.band]}">${v.toFixed(3)}</td>`;
     return `<td>${v}</td>`;
   }).join('') + '</tr>').join('');
 
@@ -319,8 +351,18 @@ function renderUntrustTable(d){
       renderUntrustTable(d);
     });
   });
+
+  // Clicking an index pins the point everywhere AND opens its per-metric
+  // breakdown in the readout above the plots. That detail is deliberately not
+  // carried as table columns.
   tbody.querySelectorAll('.idx-click').forEach(td=>{
-    td.addEventListener('click', ()=> pinPoint(parseInt(td.dataset.pt)));
+    td.addEventListener('click', ()=>{
+      const i = parseInt(td.dataset.pt);
+      pinPoint(i);
+      if(state.pinned === i) utShowPoint(i);
+      else { const ro=$('untrustHover'); if(ro) ro.innerHTML = UT_HOVER_HINT; }
+      renderUntrustTable(state.result);
+    });
   });
 }
 
@@ -339,8 +381,7 @@ function bindUntrustControls(){
       if(state.result) renderUntrust(state.result);
     });
   };
-  seg('utTierSeg',   (b)=>{ state.untrustTier   = b.dataset.ut; });
-  seg('utMethodSeg', (b)=>{ state.untrustMethod = b.dataset.um; });
+  seg('utTierSeg', (b)=>{ state.untrustTier = b.dataset.ut; });
 }
 
 function renderUntrust(d){

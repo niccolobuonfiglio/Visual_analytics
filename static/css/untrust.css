@@ -61,3 +61,12 @@ strong.ut-red{ color:#e8969b; }
 strong.ut-amber{ color:#f0c98a; }
 strong.ut-green{ color:#8fdcab; }
 .ut-hr-sep{ color:var(--line-bright); margin:0 8px; }
+
+/* index-click "pinned" marker in the readout above the plots */
+.ut-pin-tag{
+  display:inline-block; margin-left:6px; padding:1px 7px; border-radius:10px;
+  font-family:var(--mono); font-size:10px; letter-spacing:0.03em;
+  color:#8fdcab; background:rgba(78,201,122,0.14); border:1px solid currentColor;
+}
+/* a point no projection flags */
+.ut-flag-none{ font-family:var(--mono); color:var(--ink-faint); text-align:center; }

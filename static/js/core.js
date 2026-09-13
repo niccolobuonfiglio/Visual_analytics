@@ -22,8 +22,7 @@ const state = {
   // Trust Analysis state
   trustMetric: 'f1',       // 'f1' | 'js_fidelity' | 'euclidean' | 'mrre'
   untrustTier: 'all',      // 'all' | 'Untrustworthy' | 'Medium' | 'Trustworthy'
-  untrustMethod: 'PCA',    // which method the Level/Evenness table describes
-  untrustSort: { key: 'level', dir: 1 },
+  untrustSort: { key: 'tier', dir: 1 },   // worst tier first
   trustView: 'score',      // 'score' | 'class' -> colour the trust plots by
   brushMode: 'within',     // 'within' | 'all'      -> boxplot recompute mode
   cmpMethod: 'MDS',        // method for the metric-vs-metric scatter
