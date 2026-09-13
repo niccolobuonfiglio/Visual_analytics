@@ -31,9 +31,9 @@ from matplotlib.colors import TwoSlopeNorm
 from matplotlib.cm import ScalarMappable
 from matplotlib.widgets import RectangleSelector
 
-from error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
+from toolkit.error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
                         build_projections, compute_errors)
-from utils import nice_vmax, normalize_errors
+from toolkit.utils import nice_vmax, normalize_errors
 
 CMAP = "RdBu"
 

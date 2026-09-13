@@ -11,6 +11,6 @@ has been moved to ``legacy/label_structure.py``. It is intentionally NOT
 re-exported here, so that importing it again is a deliberate act.
 """
 
-from verdict import compare_methods
+from toolkit.verdict import compare_methods
 
 __all__ = ["compare_methods"]

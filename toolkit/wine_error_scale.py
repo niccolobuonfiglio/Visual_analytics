@@ -27,11 +27,11 @@ from numpy.typing import NDArray
 import matplotlib
 matplotlib.use("Agg")  # drop this line if you want interactive windows
 
-from error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
+from toolkit.error_core import (SKLEARN_LOADERS, load_dataset, maybe_subsample,
                         build_projections, compute_errors)
-from utils import describe, resolve_outdir, build_fname_tag, nice_vmax, \
+from toolkit.utils import describe, resolve_outdir, build_fname_tag, nice_vmax, \
     normalize_errors
-from plotting import (plot_projections, plot_error_comparison,
+from toolkit.plotting import (plot_projections, plot_error_comparison,
                       plot_error_histograms, plot_parallel_coordinates)
 
 

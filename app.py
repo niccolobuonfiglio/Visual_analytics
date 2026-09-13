@@ -16,9 +16,9 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from datasets import DATASET_NAMES
-from pipeline import run_pipeline
-from store import UPLOAD_DIR, load_store, remember, clear_store
+from toolkit.datasets import DATASET_NAMES
+from toolkit.pipeline import run_pipeline
+from toolkit.store import UPLOAD_DIR, load_store, remember, clear_store
 
 APP_DIR = Path(__file__).parent
 app = Flask(__name__, static_folder=str(APP_DIR / "static"), static_url_path="")

@@ -31,11 +31,11 @@ from typing import Any
 
 import numpy as np
 
-from datasets import load_dataset, maybe_subsample
-from projections import build_projections
-from metrics import adaptive_k, per_point_neighbor_metrics, compute_errors
-from verdict import compare_methods
-from utils import describe, build_fname_tag, nice_vmax, normalize_errors
+from toolkit.datasets import load_dataset, maybe_subsample
+from toolkit.projections import build_projections
+from toolkit.metrics import adaptive_k, per_point_neighbor_metrics, compute_errors
+from toolkit.verdict import compare_methods
+from toolkit.utils import describe, build_fname_tag, nice_vmax, normalize_errors
 
 # The three per-point metrics averaged into the consensus fidelity that drives
 # the untrustworthy flag. Normalised stress is deliberately not included; see

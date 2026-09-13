@@ -22,7 +22,7 @@ import numpy as np
 from numpy.typing import NDArray
 from sklearn.metrics import pairwise_distances
 
-from projections import Projections, ErrorMap
+from toolkit.projections import Projections, ErrorMap
 
 
 # Intrusion / extrusion error  (precision-vs-recall, FP - FN)
