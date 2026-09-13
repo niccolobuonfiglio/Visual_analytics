@@ -39,7 +39,7 @@ column.
 
 Four real datasets: `wine`, `iris`, `breast_cancer`, `digits`.
 
-Five synthetic ones, each built to expose a specific failure mode — useful for
+Five synthetic ones, each built to expose a specific failure mode, useful for
 checking the tool behaves before you trust it on your own data:
 
 | | what it isolates |
@@ -64,7 +64,7 @@ median-density point keeps exactly the k you set. The readout beside the slider
 shows the resulting spread.
 
 If k is too large for your sample size a warning appears under the summary bar.
-Take it seriously — above ~15% of n the scores lose contrast.
+Take it seriously, above ~15% of n the scores lose contrast.
 
 Press **Run**.
 
@@ -73,7 +73,7 @@ Press **Run**.
 A banner at the top names the more faithful projection. It only says
 **decisive** when a paired bootstrap interval on the per-point difference
 excludes zero *and* the margin clears 0.02. Anything else means the two
-projections are comparable for your data — not that one won narrowly.
+projections are comparable for your data, not that one won narrowly.
 
 **Examine verdict** opens the full breakdown: the four weighted criteria
 (fidelity 0.30, neighbourhood 0.25, Shepard 0.20, cluster agreement 0.25) scored
@@ -86,7 +86,7 @@ Two linked scatters, PCA and MDS, showing the same points. Colour is the
 selected per-point metric, red = least trustworthy.
 
 - **Drag** a box or lasso on either plot. The same points light up on the other
-  one — that's the core move. A group that's tight in PCA and scattered in MDS
+  one, that's the core move. A group that's tight in PCA and scattered in MDS
   is visible in a single gesture.
 - **Hover** any point to ring it in both plots and see its scores side by side.
 - **Colour by classes** instead of score answers "is this red patch a real
@@ -99,31 +99,31 @@ Four metrics are available. They deliberately disagree:
 | neighbour F1 | did the right points stay in the top-k? |
 | JS fidelity | did their *relative* closeness survive? |
 | local stress | did the distances themselves survive? |
-| norm. stress | same, without rank weighting — widest spread, best for ranking points |
+| norm. stress | same, without rank weighting, widest spread, best for ranking points |
 
 ### 5. Narrow down
 
 Filters compose with your brush selection; the status bar shows what survives.
 
-- **by class** — isolate one group
-- **by score** — separate windows for PCA and MDS, so "good in PCA, bad in MDS"
+- **by class**, isolate one group
+- **by score**, separate windows for PCA and MDS, so "good in PCA, bad in MDS"
   is one query
-- **by disagreement** — jump straight to the points where the choice of
+- **by disagreement**, jump straight to the points where the choice of
   projection actually changes the picture
-- **by attribute** — a range on any original feature. This is what connects a
+- **by attribute**, a range on any original feature. This is what connects a
   distortion to the data: if the bad points also share an extreme feature value,
   that's a finding.
 
 Box plots and the metric-vs-metric scatters recompute over whatever is
 currently active. Points far off the diagonal in the comparison view are the
-ambiguous ones — worth looking at by hand.
+ambiguous ones, worth looking at by hand.
 
 ### 6. Inspect the bad points
 
 **Level & Evenness** shows both projections double-encoded:
 
-- **fill** = Level, the mean of the four metrics — how faithful the point is on average
-- **ring** = Evenness, 1 − (max − min) — whether the metrics agree about it
+- **fill** = Level, the mean of the four metrics, how faithful the point is on average
+- **ring** = Evenness, 1 − (max − min), whether the metrics agree about it
 
 A point is **Untrustworthy** if either reading is red, **Medium** if either is
 amber, **Trustworthy** only when both are green. A high Level with poor Evenness
@@ -135,7 +135,7 @@ visible, sortable, and clicking an index pins that point in every plot at once.
 The **Untrustworthy Points** table underneath is the conservative summary: points
 flagged by low consensus fidelity in the *worse* of the two projections, with the
 metrics that independently agree. Read the count as "these are worth checking",
-not as an exact number of bad points — the threshold is a readability heuristic,
+not as an exact number of bad points, the threshold is a readability heuristic,
 capped at 20 rows.
 
 ---
@@ -182,7 +182,7 @@ paths that were retired.
   score means the projection distorted the point, not that it failed to separate
   your classes.
 - The reference is standardised Euclidean distance in the feature space. That's
-  the fair yardstick for PCA and MDS because it's the geometry they assume — it
+  the fair yardstick for PCA and MDS because it's the geometry they assume, it
   is not a claim that Euclidean distance is the right notion of similarity for
   your data.
 - Tier and threshold cut-offs are conventions, not measurements. They're

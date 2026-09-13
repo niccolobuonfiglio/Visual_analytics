@@ -26,7 +26,7 @@
     <div class="mast-left">    </div>
     <div class="mast-center">
       <h1 class="mast-title">Projection Fidelity Toolkit</h1>
-      <p class="mast-sub">Per-point PCA / MDS comparison and analysis</p>
+      <p class="mast-sub">Per-point 2-D projections comparison and analysis</p>
     </div>
     <div class="mast-right">
     </div>
@@ -46,6 +46,14 @@
           <label class="field">
             <span class="field-label">Dataset</span>
             <select id="dataset" class="inp"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Left projection</span>
+            <select id="methodA" class="inp"><option value="PCA" selected>PCA</option><option value="MDS">MDS</option><option value="t-SNE">t-SNE</option><option value="UMAP">UMAP</option></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Right projection</span>
+            <select id="methodB" class="inp"><option value="PCA">PCA</option><option value="MDS" selected>MDS</option><option value="t-SNE">t-SNE</option><option value="UMAP">UMAP</option></select>
           </label>
           <div class="csv-zone">
             <input type="file" id="csvFile" accept=".csv,text/csv" hidden>
@@ -342,11 +350,11 @@
                   <span class="tf-label">By score <span class="hint" id="tfScoreMetric">(F1)</span></span>
                   <div class="tf-attr tf-score-container" id="tfScore" style="display: flex; gap: 20px; flex-wrap: wrap;">
                     <div class="tf-score-method">
-                      <span style="font-size: 12px; color: #82abd8; font-weight: 600;">PCA</span>
+                      <span style="font-size: 12px; color: #82abd8; font-weight: 600;">Left projection</span>
                       <span id="tfScorePca"></span>
                     </div>
                     <div class="tf-score-method">
-                      <span style="font-size: 12px; color: #e0a54b; font-weight: 600;">MDS</span>
+                      <span style="font-size: 12px; color: #e0a54b; font-weight: 600;">Right projection</span>
                       <span id="tfScoreMds"></span>
                     </div>
                   </div>
@@ -403,8 +411,8 @@
 
             <!-- LEVEL / EVENNESS SCATTERS -->
             <section class="flatpanel" data-panel="untrust-plots" style="padding: 18px 0 0 0; border-bottom: none;">
-              <h3 class="panel-title">Level &amp; Evenness</h3>
-              <div class="panel-caption" style="max-width: 100%;">Each point twice over. <strong>Level</strong> is the mean of its four per-point metrics, so it answers &ldquo;how faithful is this point on average?&rdquo;. <strong>Evenness</strong> is 1&nbsp;&minus;&nbsp;(max&nbsp;&minus;&nbsp;min) across those same four, so it answers &ldquo;do the metrics agree about it?&rdquo;. A point is <strong>Untrustworthy</strong> if either reading is red, <strong>Medium</strong> if either is amber, and <strong>Trustworthy</strong> only when both are green &mdash; a high Level with poor Evenness is not a clean point, it is a point whose verdict depends on which metric you ask.</div>
+              <h3 class="panel-title">Untrustworthy points visualization</h3>
+              <div class="panel-caption" style="max-width: 100%;">Each point twice over. <strong>Level</strong> is the mean of its four per-point metrics, less a penalty for how much they disagree: a point the metrics cannot agree on is not one you can call faithful, so the disagreement costs it. <strong>Evenness</strong> is 1&nbsp;&minus;&nbsp;(max&nbsp;&minus;&nbsp;min) across those same four, so it answers &ldquo;do the metrics agree about it?&rdquo;. A point is <strong>Untrustworthy</strong> if either reading is red, <strong>Medium</strong> if either is amber, and <strong>Trustworthy</strong> only when both are green: a high Level with poor Evenness is not a clean point, it is a point whose verdict depends on which metric you ask.</div>
 
               <div class="ut-controls">
                 <div class="ut-ctl-group">
@@ -419,8 +427,8 @@
               </div>
 
               <div class="ut-legend">
-                <span class="ut-legend-group"><span class="ut-legend-title">Fill = Level</span><span class="ut-key"><span class="ut-dot ut-dot-fill-red"></span>low</span><span class="ut-key"><span class="ut-dot ut-dot-fill-amber"></span>mid</span><span class="ut-key"><span class="ut-dot ut-dot-fill-green"></span>high</span></span>
-                <span class="ut-legend-group"><span class="ut-legend-title">Ring = Evenness</span><span class="ut-key"><span class="ut-dot ut-dot-ring-red"></span>low</span><span class="ut-key"><span class="ut-dot ut-dot-ring-amber"></span>mid</span><span class="ut-key"><span class="ut-dot ut-dot-ring-green"></span>high</span></span>
+                <span class="ut-legend-group"><span class="ut-legend-title">Fill = Level</span><span class="ut-key"><span class="ut-dot ut-dot-fill" style="background:#8c1d1d"></span>0.0-0.2</span><span class="ut-key"><span class="ut-dot ut-dot-fill" style="background:#c2600f"></span>0.2-0.4</span><span class="ut-key"><span class="ut-dot ut-dot-fill" style="background:#d9bb36"></span>0.4-0.6</span><span class="ut-key"><span class="ut-dot ut-dot-fill" style="background:#6cbf59"></span>0.6-0.8</span><span class="ut-key"><span class="ut-dot ut-dot-fill" style="background:#17703a"></span>0.8-1.0</span></span>
+                <span class="ut-legend-group"><span class="ut-legend-title">Ring = Evenness</span><span class="ut-key"><span class="ut-dot ut-dot-ring" style="border-color:#8c1d1d"></span>0.0-0.2</span><span class="ut-key"><span class="ut-dot ut-dot-ring" style="border-color:#c2600f"></span>0.2-0.4</span><span class="ut-key"><span class="ut-dot ut-dot-ring" style="border-color:#d9bb36"></span>0.4-0.6</span><span class="ut-key"><span class="ut-dot ut-dot-ring" style="border-color:#6cbf59"></span>0.6-0.8</span><span class="ut-key"><span class="ut-dot ut-dot-ring" style="border-color:#17703a"></span>0.8-1.0</span></span>
               </div>
 
               <div class="es-grid es-grid-rel">
@@ -438,6 +446,7 @@
               </div>
             </section>
 
+            <!-- 
             <section class="flatpanel" data-panel="table" style="padding: 18px 0 0 0; border-bottom: none;">
               <h3 class="panel-title" data-info-title="untrustworthy">Untrustworthy Points</h3>
               <div class="panel-caption style="max-width: 100%;">Points you cannot trust, flagged by a low <strong>consensus fidelity</strong> (the mean of neighbour-F1, JS fidelity and local stress, taken for the worse of PCA/MDS) that falls below a statistical fence (Q1&nbsp;&minus;&nbsp;1.5&times;IQR). <span id="tableMeta"></span></div>
@@ -448,6 +457,8 @@
                 </table>
               </div>
             </section>
+            -->
+            
           </div>
           </section>
         </section>
@@ -458,7 +469,7 @@
           <!-- headline verdict card -->
           <div class="an-card an-verdict" id="anVerdictCard">
             <div class="an-card-head">
-              <h3 data-info-title="verdict">PCA vs MDS verdict</h3>
+              <h3 data-info-title="verdict">Verdict panel</h3>
               <span class="an-chip" id="anVerdictChip">,</span>
             </div>
             <div class="an-verdict-body" id="anVerdictBody"></div>
@@ -466,13 +477,6 @@
             <div class="an-note" id="anVerdictNote"></div>
           </div>
         </section>
-
-        <!-- REMOVED: the "analysis-data" section held two cards whose backends no
-             longer run -- the simulated-annealing neighbourhood search and the
-             adjusted-distance (Locality / Mahalanobis) MDS comparison. The
-             markup is preserved in the git history; the scripts that drove it
-             are in static/legacy/label-structure.js and
-             static/legacy/adjusted-distance.js and are not loaded. -->
 
       </div>
     </main>

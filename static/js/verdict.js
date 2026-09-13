@@ -41,13 +41,13 @@ function renderVerdictBanner(d){
     sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)}, no meaningful difference on this dataset`;
   } else if(p.decisive){
     banner.classList.add('vb-decisive');
-    badge.textContent = p.winner;
-    headline.innerHTML = `<strong>${p.winner}</strong> is the more faithful projection`;
+    badge.textContent = mName(p.winner);
+    headline.innerHTML = `<strong>${mName(p.winner)}</strong> is the more faithful projection`;
     sub.textContent = `decisive, composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}, ${p.relpct.toFixed(1)}% relative), 95% CI excludes zero`;
   } else {
     banner.classList.add('vb-soft');
-    badge.textContent = p.winner;
-    headline.innerHTML = `<strong>${p.winner}</strong> leads, but not decisively`;
+    badge.textContent = mName(p.winner);
+    headline.innerHTML = `<strong>${mName(p.winner)}</strong> leads, but not decisively`;
     sub.textContent = `composite ${fmt3(p.sWin)} vs ${fmt3(p.sLose)} (+${fmt3(p.margin)}), the confidence interval is small, not extremely indicative`;
   }
 }
@@ -61,7 +61,7 @@ function componentBars(pm){
   const comps = ['fidelity','neighbourhood','shepard','cluster'];
   const methods = Object.keys(pm);
   let html = '<table class="an-comp-table"><thead><tr><th>criterion</th>';
-  methods.forEach(m=> html += `<th>${m}</th>`);
+  methods.forEach(m=> html += `<th>${mName(m)}</th>`);
   html += '<th></th></tr></thead><tbody>';
   comps.forEach(c=>{
     const vals = methods.map(m=> (pm[m].components && pm[m].components[c]!=null) ? pm[m].components[c] : null);
@@ -242,7 +242,7 @@ function renderVerdictCharts(d){
       type:'bar', name:m, x:present,
       y: present.map(c=> pm[m].components && pm[m].components[c]!=null ? pm[m].components[c] : 0),
       marker:{color: methodColor[m] || '#7f9ab5'},
-      hovertemplate:`${m} %{x}: %{y:.3f}<extra></extra>`,
+      hovertemplate:`${mName(m)} %{x}: %{y:.3f}<extra></extra>`,
     }));
     Plotly.react(bars, traces, baseLayout({
       barmode:'group',

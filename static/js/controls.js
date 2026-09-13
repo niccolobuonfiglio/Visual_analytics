@@ -137,6 +137,8 @@ function collectParams(){
     adaptive: $('adaptive') ? $('adaptive').checked : true,
     normalize: 'none',
     no_standardize: $('noStandardize').checked,
+    method_a: $('methodA') ? $('methodA').value : 'PCA',
+    method_b: $('methodB') ? $('methodB').value : 'MDS',
     threshold: parseFloat($('threshold').value),
     untrust_floor: parseFloat($('untrustFloor').value),
   };
@@ -284,6 +286,8 @@ function applyParamsToForm(p){
   setV('neighbors',p.neighbors); $('kEcho').textContent=p.neighbors??10;
   setV('threshold',p.threshold); $('threshEcho').textContent=(p.threshold??0.5).toFixed?.(2)??p.threshold;
   $('adaptive').checked = p.adaptive!==false;
+  if($('methodA') && p.method_a) $('methodA').value = p.method_a;
+  if($('methodB') && p.method_b) $('methodB').value = p.method_b;
   $('noStandardize').checked = !!p.no_standardize;
   if(p.max_samples) $('maxSamples').value = p.max_samples;
 }

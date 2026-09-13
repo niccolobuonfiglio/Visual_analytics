@@ -100,10 +100,10 @@ function renderTrust(d){
   updateFilterStatus(d);
 }
 
-const F1_SCALE = [[0,'#d24b52'],[0.5,'#e0a54b'],[1,'#4ec97a']];  // red→amber→green
-
-// the two projections coloured by the chosen per-point score
-const F1_SCALE_LOCAL = [[0,'#d24b52'],[0.5,'#e0a54b'],[1,'#4ec97a']];
+// the two projections coloured by the chosen per-point score, using the
+// five-band categorical scale defined in core.js
+const F1_SCALE = SCORE_SCALE;
+const F1_SCALE_LOCAL = SCORE_SCALE;
 const METRIC_KEYS = ['f1','js_fidelity','localstress','normstress'];
 
 function renderTrustProjections(d){
@@ -146,7 +146,10 @@ function renderTrustProjections(d){
       colorbar: classView ? undefined : {
         title: { text: METRIC_LABELS[key] || key, font: { size: 9, color: '#9aa7b6' } },
         thickness: 10,
-        len: 0.9
+        len: 0.9,
+        tickvals: SCORE_TICKS,
+        ticktext: SCORE_TICKS.map(v=>v.toFixed(1)),
+        tickfont: { size: 9, color: '#9aa7b6' }
       }
     };
   };
@@ -186,8 +189,8 @@ function renderTrustProjections(d){
   const cfg = Object.assign({}, PLOT_CONFIG, {modeBarButtonsToAdd:['select2d','lasso2d']});
   
   // Render the plots
-  Plotly.react('trustPca', [mk(t.pca, nm.PCA[key]), ringTrace(t.pca)], lay('PCA'), cfg);
-  Plotly.react('trustMds', [mk(t.mds, nm.MDS[key]), ringTrace(t.mds)], lay('MDS'), cfg);
+  Plotly.react('trustPca', [mk(t.pca, nm.PCA[key]), ringTrace(t.pca)], lay(mName('PCA')), cfg);
+  Plotly.react('trustMds', [mk(t.mds, nm.MDS[key]), ringTrace(t.mds)], lay(mName('MDS')), cfg);
   
   // reflect current selection as rings
   if((state.trustSel && state.trustSel.size) || state.pinned!=null) applyTrustRings(d, state.trustSel || new Set());
@@ -277,8 +280,9 @@ function applyTrustRings(d, idxSet, hover){
   ['trustPca','trustMds','untrustPca','untrustMds'].forEach(id=>{
     const el=$(id); if(!el||!el.data) return;
     const xy = id.endsWith('Pca') ? t.pca : t.mds;
-    // Find which trace index is the ring trace (should be index 1)
-    const ringIdx = 1; // The ring trace is the second trace
+    // The untrust plots carry an extra Evenness-ring trace, so their
+    // selection ring is trace 2; the trust pair has it at trace 1.
+    const ringIdx = id.startsWith('untrust') ? 2 : 1;
     Plotly.restyle(id, { 
       x: [idxList.map(i=>xy.x[i])], 
       y: [idxList.map(i=>xy.y[i])],

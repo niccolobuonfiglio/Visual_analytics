@@ -33,12 +33,8 @@
   width:13px; height:13px; border-radius:50%;
   border:2px solid transparent; display:inline-block;
 }
-.ut-dot-fill-red{   background:#d24b52; }
-.ut-dot-fill-amber{ background:#e0a54b; }
-.ut-dot-fill-green{ background:#4ec97a; }
-.ut-dot-ring-red{   background:var(--bg-inset); border-color:#d24b52; }
-.ut-dot-ring-amber{ background:var(--bg-inset); border-color:#e0a54b; }
-.ut-dot-ring-green{ background:var(--bg-inset); border-color:#4ec97a; }
+.ut-dot-fill{ border-color:transparent; }
+.ut-dot-ring{ background:var(--bg-inset); }
 
 /* tier badge, used in the hover readout and the Tier column */
 .ut-badge{

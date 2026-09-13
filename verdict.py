@@ -82,6 +82,7 @@ def _find_best_k_for_clustering(X: NDArray[np.float64], k_range: tuple[int, int]
 def compare_methods(X_high: NDArray[np.float64], projections: dict,
                     errs: dict, fps: dict, fns: dict,
                     labels: Sequence[int], k: int = 10,
+                    slot_names: Optional[dict] = None,
                     kmeans: Optional[dict] = None) -> dict:
     """Decide, mechanically, whether PCA or MDS is better -- and by how much.
 
@@ -174,6 +175,10 @@ def compare_methods(X_high: NDArray[np.float64], projections: dict,
 
     ranked = sorted(names, key=lambda m: per_method[m]["score"], reverse=True)
     win, lose = ranked[0], ranked[-1]
+    # 'PCA'/'MDS' are slot names; report the methods that actually filled them
+    slot_names = slot_names or {}
+    win_name = slot_names.get(win, win)
+    lose_name = slot_names.get(lose, lose)
     s_win, s_lose = per_method[win]["score"], per_method[lose]["score"]
     margin = s_win - s_lose
     rel = (margin / s_lose * 100.0) if s_lose > 0 else float("inf")
@@ -190,12 +195,12 @@ def compare_methods(X_high: NDArray[np.float64], projections: dict,
 
     # a short, honest english statement
     if margin < 0.005:
-        verdict = (f"PCA and MDS are effectively tied "
+        verdict = (f"{win_name} and {lose_name} are effectively tied "
                    f"(composite scores {s_win:.3f} vs {s_lose:.3f}).")
     else:
         strength = ("decisively" if decisive
                     else "but the margin is not statistically reliable;")
-        verdict = (f"{win} is better than {lose} {strength} composite "
+        verdict = (f"{win_name} is better than {lose_name} {strength} composite "
                    f"{s_win:.3f} vs {s_lose:.3f} "
                    f"(+{margin:.3f}, {rel:.1f}% relative).")
 

@@ -57,8 +57,8 @@ function renderStatbar(d){
   $('statbar').innerHTML =
     pill('Dataset', info.name, '', `${info.standardized?'standardized':'raw'}`) +
     pill('Samples', info.n_samples, '', `${info.n_features} features | ${info.n_classes} classes`) +
-    (d.timings ? pill('PCA time', (d.timings.pca_ms).toFixed(0)+' ms', '', 'computed') : '') +
-    (d.timings ? pill('MDS time', (d.timings.mds_ms).toFixed(0)+' ms', signCls(d.timings.pca_ms - d.timings.mds_ms), 'computed') : '') +
+    (d.timings ? pill('Left projection time', (d.timings.pca_ms).toFixed(0)+' ms', '', 'computed') : '') +
+    (d.timings ? pill('Right projection time', (d.timings.mds_ms).toFixed(0)+' ms', signCls(d.timings.pca_ms - d.timings.mds_ms), 'computed') : '') +
     pill('Untrustworthy', s.untrustworthy_count, '', d.untrust_desc || 'consensus fidelity') +
     pill('Runtime', info.elapsed+'s', '', 'pipeline');
   renderWarnings(d);

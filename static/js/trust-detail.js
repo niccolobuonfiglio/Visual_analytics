@@ -333,11 +333,8 @@ function renderTrustCompare(d){
       marker: {
         size: 7,
         color: displacement,
-        colorscale: [
-          [0, '#4ec97a'],      // Green: small displacement (stable)
-          [0.5, '#e0a54b'],    // Amber: moderate displacement
-          [1, '#d24b52']       // Red: large displacement (unstable)
-        ],
+        // same five bands as everywhere else, reversed: here a LARGE value is bad
+        colorscale: SCORE_SCALE.map(([pos, col], i, a) => [pos, a[a.length-1-i][1]]),
         cmin: 0,
         cmax: 1,
         showscale: true,

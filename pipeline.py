@@ -60,6 +60,9 @@ def _read_params(params: dict[str, Any]) -> dict[str, Any]:
         "adaptive": bool(params.get("adaptive", True)),
         "max_samples": int(max_samples) if max_samples else None,
         "standardize": not bool(params.get("no_standardize", False)),
+        # which two embeddings to compare; either slot may be any of PROJECTORS
+        "method_a": params.get("method_a") or "PCA",
+        "method_b": params.get("method_b") or "MDS",
         # The fidelity metric is GEOMETRIC: it counts any broken neighbour, with
         # no assumption that the class labels are correct. The class-aware mode
         # (cross-class intrusions and same-class extrusions only) is no longer
@@ -233,9 +236,15 @@ def run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
 
         # Projections always use the PLAIN Euclidean distance, so the per-point
         # metrics and the verdict are always measured against the true geometry.
-        proj, X_high = build_projections(X, standardize=cfg["standardize"])
+        proj, X_high = build_projections(
+            X, standardize=cfg["standardize"],
+            method_a=cfg["method_a"], method_b=cfg["method_b"])
         timings = dict(getattr(build_projections, "last_timings",
                                {"pca_ms": 0, "mds_ms": 0}))
+        # slot -> method actually used, so the interface can label the panels
+        methods = dict(getattr(build_projections, "last_methods",
+                               {"PCA": "PCA", "MDS": "MDS"}))
+        print(f"[projections] left = {methods['PCA']}, right = {methods['MDS']}")
 
         # DISABLED: plain-vs-adjusted MDS comparison (Mahalanobis whitening or
         # Laplacian-Score locality weighting). This was the most expensive block
@@ -291,7 +300,8 @@ def run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         verdict_res = None
         try:
             verdict_res = compare_methods(X_high, proj, errs, fps, fns, y,
-                                          k=cfg["neighbors"], kmeans=None)
+                                          k=cfg["neighbors"], kmeans=None,
+                                          slot_names=methods)
             print(f"\n[verdict] {verdict_res['verdict']}")
         except Exception as exc:
             print(f"[verdict] skipped ({exc})")
@@ -319,6 +329,7 @@ def run_pipeline(params: dict[str, Any]) -> dict[str, Any]:
         "standardized": cfg["standardize"],
         "elapsed": round(elapsed, 3),
         "k_over_n_ratio": round(cfg["neighbors"] / max(1, n_now), 3),
+        "methods": methods,
         "warnings": _degeneracy_warnings(cfg["neighbors"], n_now),
     }
 
